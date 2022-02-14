@@ -12,7 +12,7 @@ import Foundation
  In order to cache objects that are returned from any queries, we need to know the `id` and `__typename` fields to any object that has an `id`.
  `attachCachableFields` appends these fields to any selection sets for any object that contains these fields
  */
-func attachCachableFields(schema: GraphQLSchema, document: Document) -> Document {
+public func attachCachableFields(schema: GraphQLSchema, document: Document) -> Document {
 
     
     let typeInfo = TypeInfo(schema: schema)

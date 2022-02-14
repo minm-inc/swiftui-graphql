@@ -1,0 +1,9 @@
+{
+	a {
+		b { b1 }
+		...Foo
+	}
+}
+fragment Foo on Impl {
+	b { b2 }
+}

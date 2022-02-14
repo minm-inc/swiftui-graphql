@@ -14,7 +14,10 @@ let package = Package(
         .library(
             name: "SwiftUIGraphQL",
             targets: ["SwiftUIGraphQL"]),
-        .executable(name: "SwiftUIGraphQLCodegen", targets: ["Codegen"])
+        .executable(
+            name: "SwiftUIGraphQLCodegen",
+            targets: ["CodegenExecutable"]
+        )
     ],
     dependencies: [
         // Dependencies declare other packages that this package depends on.
@@ -37,7 +40,7 @@ let package = Package(
         .testTarget(
             name: "SwiftUIGraphQLTests",
             dependencies: ["SwiftUIGraphQL"]),
-        .executableTarget(name: "Codegen", dependencies: [
+        .target(name: "Codegen", dependencies: [
             "SwiftUIGraphQL",
             "SwiftSyntax",
             .product(name: "SwiftSyntaxBuilder", package: "SwiftSyntax"),
@@ -45,8 +48,11 @@ let package = Package(
             .product(name: "GraphQL", package: "GraphQL"),
             .product(name: "Collections", package: "swift-collections")
         ]),
+        .executableTarget(name: "CodegenExecutable", dependencies: ["Codegen"]),
         .testTarget(
             name: "CodegenTests",
-            dependencies: ["Codegen"])
+            dependencies: ["Codegen"],
+            resources: [Resource.copy("Cases")]
+        )
     ]
 )

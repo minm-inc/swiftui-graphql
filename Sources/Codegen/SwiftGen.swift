@@ -48,8 +48,8 @@ class SwiftGen {
             ).withTrailingTrivia(.newlines(1))
         case let .staticLetString(name, literal):
             return DeclSyntax(genStaticLetString(name: name, literal: literal))
-        case let .protocol(name, conforms, decls):
-            return DeclSyntax(genProtocol(name: name, conforms: conforms, decls: decls))
+        case let .protocol(name, conforms, whereClauses, decls):
+            return DeclSyntax(genProtocol(name: name, conforms: conforms, whereClauses: whereClauses, decls: decls))
         case let .protocolVar(name, type):
             return DeclSyntax(genProtocolVar(name: name, type: typeSyntax(for: type)))
         case let .associatedtype(name, inherits):
@@ -71,14 +71,26 @@ class SwiftGen {
             return Syntax(
                 genSwitch(
                     expr: expr,
-                    cases: cases.map { genReturnEnumMemberSwitchCase(caseName: $0.key, memberName: $0.value) }
+                    cases: cases.map(genReturnEnumMemberSwitchCase)
                 )
             )
         }
     }
     
+    private func gen(expr: Expr) -> ExprSyntax {
+        switch expr {
+        case let .memberAccess(member, base):
+            return ExprSyntax(genMemberAccess(base: base, member: member))
+        case let .functionCall(called, args):
+            return ExprSyntax(genFunctionCall(called: called, args: args))
+        case let .identifier(identifier):
+            return ExprSyntax(genIdentifier(identifier))
+        }
+    }
+    
     private func genInheritanceClause(conforms: [String]) -> TypeInheritanceClauseSyntax {
         TypeInheritanceClauseSyntax {
+            if conforms.isEmpty { return }
             $0.useColon(SyntaxFactory.makeColonToken(leadingTrivia: .zero, trailingTrivia: .spaces(1)))
             for (i, identifier) in conforms.enumerated() {
                 
@@ -154,7 +166,7 @@ class SwiftGen {
                         })
                     }
                     $0.useRightAngleBracket(SyntaxFactory.makeRightAngleToken())
-                }.withTrailingTrivia(.spaces(1)))
+                })
             }
             $0.useInheritanceClause(genInheritanceClause(conforms: conforms))
             $0.useMembers(MemberDeclBlockSyntax { builder in
@@ -174,26 +186,28 @@ class SwiftGen {
                     for def in decls {
                         builder.addMember(MemberDeclListItemSyntax {
                             $0.useDecl(gen(decl: def))
-                        })
+                        }.withTrailingTrivia(.newlines(1)))
                     }
                     
-                    builder.addMember(MemberDeclListItemSyntax {
-                        $0.useDecl(DeclSyntax(
-                            genEnumDecoderInit(
-                                cases: cases,
-                                enumName: name,
-                                defaultCase: defaultCase
-                            )
-                        ))
-                    })
-                    
-                    builder.addMember(MemberDeclListItemSyntax {
-                        $0.useDecl(DeclSyntax(
-                            genEnumEncodeFunc(
-                                cases: allCases
-                            )
-                        ))
-                    })
+                    if (conforms.contains("Codable")) {
+                        builder.addMember(MemberDeclListItemSyntax {
+                            $0.useDecl(DeclSyntax(
+                                genEnumDecoderInit(
+                                    cases: cases,
+                                    enumName: name,
+                                    defaultCase: defaultCase
+                                )
+                            ))
+                        })
+                        
+                        builder.addMember(MemberDeclListItemSyntax {
+                            $0.useDecl(DeclSyntax(
+                                genEnumEncodeFunc(
+                                    cases: allCases
+                                )
+                            ))
+                        })
+                    }
                 }
             })
         }
@@ -807,7 +821,7 @@ class SwiftGen {
                     $0.useCaseKeyword(
                         SyntaxFactory.makeCaseKeyword().withTrailingTrivia(.spaces(1))
                     )
-                    $0.addCaseItem(genSingleAssociatedValBindingCaseItemSyntax(caseName: caseName, bindingName: caseName))
+                    $0.addCaseItem(genSingleAssociatedValBindingCaseItemSyntax(caseName: caseName, bindings: [caseName]))
                     $0.useColon(SyntaxFactory.makeColonToken().withTrailingTrivia(.newlines(1)))
                 }
             ).withLeadingTrivia(.spaces(indentationLevel)))
@@ -849,13 +863,13 @@ class SwiftGen {
         }
     }
     
-    /// Generates a case item binding for an enum with a single associated value, binding the value
+    /// Generates a case item binding for an enum, optionally binding its associated values
     ///
     /// Generates
     /// ```swift
     /// .caseName(let bindingName)
     /// ```
-    private func genSingleAssociatedValBindingCaseItemSyntax(caseName: String, bindingName: String) -> CaseItemSyntax {
+    private func genSingleAssociatedValBindingCaseItemSyntax(caseName: String, bindings: [String]) -> CaseItemSyntax {
         CaseItemSyntax {
             $0.usePattern(PatternSyntax(
                 ExpressionPatternSyntax {
@@ -867,28 +881,35 @@ class SwiftGen {
                                     $0.useName(SyntaxFactory.makeIdentifier(caseName))
                                 }
                             ))
-                            $0.useLeftParen(SyntaxFactory.makeLeftParenToken())
-                            $0.addArgument(TupleExprElementSyntax {
-                                $0.useExpression(ExprSyntax(
-                                    UnresolvedPatternExprSyntax {
-                                        $0.usePattern(PatternSyntax(
-                                            ValueBindingPatternSyntax {
-                                                $0.useLetOrVarKeyword(
-                                                    SyntaxFactory
-                                                        .makeLetKeyword()
-                                                        .withTrailingTrivia(.spaces(1))
-                                                )
-                                                $0.useValuePattern(PatternSyntax(
-                                                    IdentifierPatternSyntax {
-                                                        $0.useIdentifier(SyntaxFactory.makeIdentifier(bindingName))
+                            if !bindings.isEmpty {
+                                $0.useLeftParen(SyntaxFactory.makeLeftParenToken())
+                                for (i, bindingName) in bindings.enumerated() {
+                                    $0.addArgument(TupleExprElementSyntax {
+                                        $0.useExpression(ExprSyntax(
+                                            UnresolvedPatternExprSyntax {
+                                                $0.usePattern(PatternSyntax(
+                                                    ValueBindingPatternSyntax {
+                                                        $0.useLetOrVarKeyword(
+                                                            SyntaxFactory
+                                                                .makeLetKeyword()
+                                                                .withTrailingTrivia(.spaces(1))
+                                                        )
+                                                        $0.useValuePattern(PatternSyntax(
+                                                            IdentifierPatternSyntax {
+                                                                $0.useIdentifier(SyntaxFactory.makeIdentifier(bindingName))
+                                                            }
+                                                        ))
                                                     }
                                                 ))
                                             }
                                         ))
-                                    }
-                                ))
-                            })
-                            $0.useRightParen(SyntaxFactory.makeRightParenToken())
+                                        if i < bindings.index(before: bindings.endIndex) {
+                                            $0.useTrailingComma(SyntaxFactory.makeCommaToken().withTrailingTrivia(.spaces(1)))
+                                        }
+                                    })
+                                }
+                                $0.useRightParen(SyntaxFactory.makeRightParenToken())
+                            }
                         }
                     ))
                 }
@@ -928,7 +949,7 @@ class SwiftGen {
         }
     }
     
-    private func genProtocol(name: String, conforms: [String], decls: [Decl]) -> ProtocolDeclSyntax {
+    private func genProtocol(name: String, conforms: [String], whereClauses: [Decl.WhereClause], decls: [Decl]) -> ProtocolDeclSyntax {
         ProtocolDeclSyntax {
             $0.useProtocolKeyword(
                 SyntaxFactory.makeProtocolKeyword(
@@ -952,10 +973,29 @@ class SwiftGen {
                             }
                         })
                     }
-                }.withTrailingTrivia(.spaces(1)))
+                })
+            }
+            if !whereClauses.isEmpty {
+                $0.useGenericWhereClause(GenericWhereClauseSyntax {
+                    $0.useWhereKeyword(SyntaxFactory.makeWhereKeyword(
+                        leadingTrivia: .spaces(1),
+                        trailingTrivia: .spaces(1)
+                    ))
+                    for (i, whereClause) in whereClauses.enumerated() {
+                        $0.addRequirement(GenericRequirementSyntax {
+                            $0.useBody(Syntax(genConformanceRequirement(whereClause: whereClause)))
+                            if i < whereClauses.index(before: conforms.endIndex) {
+                                $0.useTrailingComma(SyntaxFactory.makeCommaToken().withTrailingTrivia(.spaces(1)))
+                            }
+                        })
+                    }
+                })
             }
             $0.useMembers(MemberDeclBlockSyntax { builder in
-                builder.useLeftBrace(SyntaxFactory.makeLeftBraceToken().withTrailingTrivia(.newlines(1)))
+                builder.useLeftBrace(SyntaxFactory.makeLeftBraceToken(
+                    leadingTrivia: .spaces(1),
+                    trailingTrivia: .newlines(1)
+                ))
                 indent {
                     for decl in decls {
                         builder.addMember(MemberDeclListItemSyntax {
@@ -965,6 +1005,22 @@ class SwiftGen {
                 }
                 builder.useRightBrace(SyntaxFactory.makeRightBraceToken(leadingTrivia: .spaces(indentationLevel), trailingTrivia: .newlines(1)))
             })
+        }
+    }
+    
+    private func genConformanceRequirement(whereClause: Decl.WhereClause) -> ConformanceRequirementSyntax {
+        ConformanceRequirementSyntax {
+            $0.useLeftTypeIdentifier(TypeSyntax(
+                SimpleTypeIdentifierSyntax {
+                    $0.useName(SyntaxFactory.makeIdentifier(whereClause.associatedType))
+                }
+            ))
+            $0.useColon(SyntaxFactory.makeColonToken().withTrailingTrivia(.spaces(1)))
+            $0.useRightTypeIdentifier(TypeSyntax(
+                SimpleTypeIdentifierSyntax {
+                    $0.useName(SyntaxFactory.makeIdentifier(whereClause.constraint))
+                }
+            ))
         }
     }
     
@@ -1123,14 +1179,14 @@ class SwiftGen {
         )
     }
     
-    private func genReturnEnumMemberSwitchCase(caseName: String, memberName: String) -> SwitchCaseSyntax {
+    private func genReturnEnumMemberSwitchCase(`case`: Decl.Syntax.SwitchCase) -> SwitchCaseSyntax {
         SwitchCaseSyntax { builder in
             builder.useLabel(Syntax(
                 SwitchCaseLabelSyntax {
                     $0.useCaseKeyword(
                         SyntaxFactory.makeCaseKeyword().withTrailingTrivia(.spaces(1))
                     )
-                    $0.addCaseItem(genSingleAssociatedValBindingCaseItemSyntax(caseName: caseName, bindingName: caseName))
+                    $0.addCaseItem(genSingleAssociatedValBindingCaseItemSyntax(caseName: `case`.enumName, bindings: `case`.binds))
                     $0.useColon(SyntaxFactory.makeColonToken().withTrailingTrivia(.newlines(1)))
                 }
             ).withLeadingTrivia(.spaces(indentationLevel)))
@@ -1142,17 +1198,7 @@ class SwiftGen {
                                 leadingTrivia: .spaces(indentationLevel),
                                 trailingTrivia: .spaces(1)
                             ))
-                            $0.useExpression(ExprSyntax(
-                                MemberAccessExprSyntax {
-                                    $0.useBase(ExprSyntax(
-                                        IdentifierExprSyntax {
-                                            $0.useIdentifier(SyntaxFactory.makeIdentifier(caseName))
-                                        }
-                                    ))
-                                    $0.useDot(SyntaxFactory.makePeriodToken())
-                                    $0.useName(SyntaxFactory.makeIdentifier(memberName))
-                                }
-                            ))
+                            $0.useExpression(gen(expr: `case`.returns))
                         }
                     ))
                 })
@@ -1198,6 +1244,51 @@ class SwiftGen {
                     $0.useReturnType(returnType)
                 })
             })
+            if let body = body {
+                $0.useBody(CodeBlockSyntax { builder in
+                    builder.useLeftBrace(SyntaxFactory.makeLeftBraceToken(leadingTrivia: .spaces(1), trailingTrivia: .newlines(1)))
+                    indent {
+                        builder.addStatement(CodeBlockItemSyntax {
+                            $0.useItem(body().withTrailingTrivia(.newlines(1)))
+                        })
+                    }
+                    builder.useRightBrace(SyntaxFactory.makeRightBraceToken(leadingTrivia: .spaces(indentationLevel), trailingTrivia: .newlines(1)))
+                })
+            }
+        }
+    }
+    
+    private func genMemberAccess(base: Expr?, member: String) -> MemberAccessExprSyntax {
+        MemberAccessExprSyntax {
+            if let base = base {
+                $0.useBase(gen(expr: base))
+            }
+            $0.useDot(SyntaxFactory.makePeriodToken())
+            $0.useName(SyntaxFactory.makeIdentifier(member))
+        }
+    }
+    
+    private func genFunctionCall(called: Expr, args: [Expr]) -> FunctionCallExprSyntax {
+        FunctionCallExprSyntax {
+            $0.useCalledExpression(gen(expr: called))
+            $0.useLeftParen(SyntaxFactory.makeLeftParenToken())
+            
+            for (i, arg) in args.enumerated() {
+                $0.addArgument(TupleExprElementSyntax {
+                    $0.useExpression(gen(expr: arg))
+                    if i < args.index(before: args.endIndex) {
+                        $0.useTrailingComma(SyntaxFactory.makeCommaToken())
+                    }
+                })
+            }
+            
+            $0.useRightParen(SyntaxFactory.makeRightParenToken())
+        }
+    }
+    
+    private func genIdentifier(_ identifier: String) -> IdentifierExprSyntax {
+        IdentifierExprSyntax {
+            $0.useIdentifier(SyntaxFactory.makeIdentifier(identifier))
         }
     }
     

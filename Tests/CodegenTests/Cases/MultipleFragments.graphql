@@ -1,0 +1,23 @@
+query {
+    ...Foo
+    ...Bar
+    ...Baz
+}
+
+fragment Foo on Query {
+    a {
+        b1
+    }
+}
+
+fragment Bar on Query {
+    a {
+        b2
+    }
+}
+
+fragment Baz on Query {
+    b: a {
+        b1
+    }
+}
