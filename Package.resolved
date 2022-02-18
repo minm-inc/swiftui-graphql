@@ -3,7 +3,7 @@
     "pins": [
       {
         "package": "GraphQL",
-        "repositoryURL": "https://github.com/minm-inc/GraphQL",
+        "repositoryURL": "https://github.com/minm-inc/GraphQL.git",
         "state": {
           "branch": "f12c6ba",
           "revision": "f12c6ba18e137934c348d0bfaf0ad27d0e54ebc2",

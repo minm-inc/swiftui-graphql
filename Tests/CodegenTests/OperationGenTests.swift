@@ -2,7 +2,7 @@ import XCTest
 @testable import Codegen
 @testable import GraphQL
 
-final class CodegenTests: XCTestCase {
+final class OperationGenTests: XCTestCase {
     
     lazy var schema: GraphQLSchema = {
         let hasAInterface = try! GraphQLInterfaceType(
@@ -86,7 +86,7 @@ final class CodegenTests: XCTestCase {
         }
         
         
-        let result: Decl = generateStruct(for: opDef, schema: schema, fragments: fragments, queryString: document.printed)
+        let result: Decl = genOperation(opDef, schema: schema, fragmentDefinitions: fragments)
         XCTAssertEqual(result, .struct(name: "GetThingiesQuery", decls: [
             .let(name: "foo", type: .optional(.named("Foo"))),
             .struct(
@@ -176,7 +176,7 @@ final class CodegenTests: XCTestCase {
             fatalError()
         }
         
-        let `struct`: Decl = generateStruct(for: opDef, schema: schema, fragments: [fragDef], queryString: "")
+        let `struct`: Decl = genOperation(opDef, schema: schema, fragmentDefinitions: [fragDef])
         XCTAssertEqual(`struct`, Decl.struct(
             name: "TestQuery",
             decls: [
@@ -376,7 +376,7 @@ final class CodegenTests: XCTestCase {
             }
         }
         """)
-        let queryDecl: Decl = generateStruct(for: query, schema: schema, fragments: fragments, queryString: query.printed)
+        let queryDecl: Decl = genOperation(query, schema: schema, fragmentDefinitions: fragments)
         guard case let .struct(_, queryDecls, _) = queryDecl else {
             XCTFail()
             return
@@ -399,12 +399,23 @@ final class CodegenTests: XCTestCase {
         XCTAssertEqual(implDecls[1], .struct(
             name: "B",
             decls: [
+                .let(name: "b2", type: .optional(.named("Int"))),
                 .let(name: "b1", type: .optional(.named("Int"))),
-                .let(name: "b2", type: .optional(.named("Int")))
+                .func(
+                    name: "convert",
+                    returnType: .memberType("B", .memberType("A", .named("AnonymousQuery"))),
+                    body: .expr(
+                        .functionCall(
+                            called: .memberAccess(member: "B", base: .memberAccess(member: "A", base: .identifier("AnonymousQuery"))),
+                            args: [.named("b1", .identifier("b1"))]
+                        )
+                    ),
+                    access: .fileprivate
+                )
             ],
-            conforms: ["Codable"]
+            conforms: ["Codable", "FooFragmentB"]
         ))
-        guard case let .struct("__Other", otherDecls, _) = decls[1] else {
+        guard case let .struct("__Other", otherDecls, _) = decls[3] else {
             XCTFail()
             return
         }
@@ -412,7 +423,7 @@ final class CodegenTests: XCTestCase {
             name: "b",
             type: .optional(.named("B"))
         ))
-        XCTAssertEqual(decls[3], .struct(
+        XCTAssertEqual(decls[2], .struct(
             name: "B",
             decls: [
                 .let(name: "b1", type: .optional(.named("Int")))
