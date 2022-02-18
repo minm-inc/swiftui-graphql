@@ -21,7 +21,7 @@ struct StandardError: TextOutputStream {
 }
 var standardError = StandardError()
 
-@main enum Main: AsyncMain {
+@main enum Main: AsyncMainProtocol {
     typealias Command = Codegen
 }
 
