@@ -1,9 +1,31 @@
 {
 	a {
-		b { b1 }
+		b {
+			b1
+			b3 {
+				c1
+			}
+			b4 {
+				d {
+					d1
+				}
+			}
+		}
 		...Foo
 	}
 }
 fragment Foo on Impl {
-	b { b2 }
+	b {
+		b2
+		b3 {
+			c2
+		}
+		b4 {
+			... on Impl2 {
+				d {
+					d2
+				}
+			}
+		}
+	}
 }

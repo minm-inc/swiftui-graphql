@@ -8,14 +8,6 @@
 import Collections
 import GraphQL
 
-//enum ResolvedField {
-//    case leaf(GraphQLOutputType)
-//    case nested(GraphQLOutputType, unconditional: OrderedDictionary<String, ResolvedField>, conditional: OrderedDictionary<String, ResolvedFieldMap>)
-//
-////    typealias FragmentConformance = (String, [String])
-//}
-
-
 enum ResolvedField {
     case leaf(GraphQLOutputType)
     case nested(Object)
@@ -55,11 +47,6 @@ enum ResolvedField {
             return nil
         }
     }
-    
-//    struct FragmentConformance: Hashable {
-//        let name: String
-//        let nestedFields: OrderedSet<String>
-//    }
 }
 
 typealias ResolvedFieldMap = OrderedDictionary<String, ResolvedField>
@@ -132,13 +119,6 @@ func resolveFields(selectionSet: SelectionSet, parentType: GraphQLOutputType, sc
         if let selectionSet = field.selectionSet {
             let object = resolveFields(selectionSet: selectionSet, parentType: type, schema: schema, fragments: fragments)
             return .nested(object)
-//            let (unconditional, conditional) = resolveFields(selectionSet: selectionSet, parentType: underlyingType(type), schema: schema, fragments: fragments)
-//            return .nested(
-//                type,
-//                unconditional: unconditional,
-//                conditional: conditional
-////                fragmentConformances: fragmentConformances
-//            )
         } else {
             return .leaf(type)
         }
@@ -152,11 +132,11 @@ func resolveFields(selectionSet: SelectionSet, parentType: GraphQLOutputType, sc
             // All these fields that we're going to include: we need to now attach the corresponding nested-object-protocols to them
             let object = resolveFields(selectionSet: selectionSet, parentType: fragmentType as! GraphQLOutputType, schema: schema, fragments: fragments, expandFragments: expandFragments)
 
-
-            if try! isTypeSubTypeOf(schema, parentType, fragmentType) {
+            if try! isTypeSubTypeOf(schema, underlyingType(parentType), fragmentType) {
                 // This fragment spread will always match, so merge the unconditionals together
                 
                 // If it has a name, then this object will always conform to said fragment (and anything that fragment conforms to)
+
                 var newFragProtos = acc.2
                 if let fragmentName = fragmentName {
                     let qualifier = FragmentQualifier.base(fragmentName)
@@ -166,7 +146,6 @@ func resolveFields(selectionSet: SelectionSet, parentType: GraphQLOutputType, sc
                         isConditional: !object.conditional.isEmpty
                     )
                     newFragProtos[qualifier] = fragmentInfo
-//                    object = attachNestedFragmentProtos(fragmentParent: qualifier, to: object)
                 }
                 
                 if expandFragments {
@@ -181,9 +160,27 @@ func resolveFields(selectionSet: SelectionSet, parentType: GraphQLOutputType, sc
             } else {
                 // This fragment is conditional: it will only include the fields if the type matches
                 // So merge in a conditional match for the fragments object, on the fragments type constraint
+                
+                var newObjectFragProtos = object.fragProtos
+                if let fragmentName = fragmentName {
+                    let qualifier = FragmentQualifier.base(fragmentName)
+                    let fragmentInfo = ProtocolInfo(
+                        declaredFields: object.unconditional.keys,
+                        alsoConformsTo: object.fragProtos,
+                        isConditional: !object.conditional.isEmpty
+                    )
+                    newObjectFragProtos[qualifier] = fragmentInfo
+                }
+                let newObject = ResolvedField.Object(
+                    type: object.type,
+                    unconditional: object.unconditional,
+                    conditional: object.conditional,
+                    fragProtos: newObjectFragProtos
+                )
+                
                 return (
                     acc.0,
-                    acc.1.merging([fragmentType.name: object], uniquingKeysWith: mergeObjects),
+                    acc.1.merging([fragmentType.name: newObject], uniquingKeysWith: mergeObjects),
                     acc.2
                 )
             }
@@ -213,12 +210,38 @@ func resolveFields(selectionSet: SelectionSet, parentType: GraphQLOutputType, sc
     return ResolvedField.Object(
         type: parentType,
         unconditional: unconditional,
-        conditional: conditional,
+        conditional: conditional.mapValues(mergeObjectConditional(withUnconditional: unconditional)),
         fragProtos: fragProtos
     )
 }
 
-func mergeResolvedFieldMaps(_ a: ResolvedFieldMap, _ b: ResolvedFieldMap) -> ResolvedFieldMap {
+/// If we have some fields that are truly unconditional, this will merge them throughout all the object's conditional fields as well
+private func mergeObjectConditional(withUnconditional unconditional: ResolvedFieldMap) -> (ResolvedField.Object) -> ResolvedField.Object {
+    return { object in
+        var x = object.unconditional
+        for (fieldName, field) in unconditional {
+            if let existingField = x[fieldName] {
+                switch existingField {
+                case .nested(let nestedObj):
+                    guard case let .nested(foo) = field else { fatalError() }
+                    x[fieldName] = .nested(mergeObjectConditional(withUnconditional: foo.unconditional)(nestedObj))
+                case .leaf:
+                    break
+                }
+            } else {
+                x[fieldName] = field
+            }
+        }
+        return ResolvedField.Object(
+            type: object.type,
+            unconditional: x,
+            conditional: object.conditional.mapValues(mergeObjectConditional(withUnconditional: unconditional)),
+            fragProtos: object.fragProtos
+        )
+    }
+}
+
+private func mergeResolvedFieldMaps(_ a: ResolvedFieldMap, _ b: ResolvedFieldMap) -> ResolvedFieldMap {
     a.merging(b, uniquingKeysWith: mergeResolvedFields)
 }
 

@@ -122,11 +122,32 @@ let multipleFragmentsSchema = try! GraphQLSchema(
 )
 
 var nestedObjectsOnInterfaceSchema: GraphQLSchema = {
+    let dType = try! GraphQLObjectType(
+        name: "D",
+        fields: [
+            "d1": GraphQLField(type: GraphQLInt),
+            "d2": GraphQLField(type: GraphQLInt)
+        ]
+    )
+    let interfaceType2 = try! GraphQLInterfaceType(
+        name: "Iface2",
+        fields: ["d": GraphQLField(type: dType)]
+    )
     let bType = try! GraphQLObjectType(
         name: "B",
         fields: [
             "b1": GraphQLField(type: GraphQLInt),
-            "b2": GraphQLField(type: GraphQLInt)
+            "b2": GraphQLField(type: GraphQLInt),
+            "b3": GraphQLField(type: GraphQLList(
+                GraphQLObjectType(
+                    name: "C",
+                    fields: [
+                        "c1": GraphQLField(type: GraphQLInt),
+                        "c2": GraphQLField(type: GraphQLInt)
+                    ]
+                )
+            )),
+            "b4": GraphQLField(type: interfaceType2)
         ]
     )
     let interfaceType = try! GraphQLInterfaceType(
@@ -140,6 +161,13 @@ var nestedObjectsOnInterfaceSchema: GraphQLSchema = {
         fields: ["b": GraphQLField(type: bType)],
         interfaces: [interfaceType]
     )
+    let implType2 = try! GraphQLObjectType(
+        name: "Impl2",
+        fields: [
+            "d": GraphQLField(type: dType)
+        ],
+        interfaces: [interfaceType2]
+    )
     let queryType = try! GraphQLObjectType(
         name: "Query",
         fields: [
@@ -148,6 +176,6 @@ var nestedObjectsOnInterfaceSchema: GraphQLSchema = {
     )
     return try! GraphQLSchema(
         query: queryType,
-        types: [implType]
+        types: [implType, implType2]
     )
 }()

@@ -148,7 +148,7 @@ final class CodegenTests: XCTestCase {
                     name: "E",
                     inherits: "BlahFragmentE"
                 ),
-                .protocolVar(name: "e", type: .optional(.named("E")))
+                .let(name: "e", type: .optional(.named("E")), accessor: .get())
             ]
         ))
         XCTAssertEqual(protocols[1], Decl.protocol(
@@ -160,7 +160,7 @@ final class CodegenTests: XCTestCase {
                     name: "Baz",
                     inherits: "BlahFragmentEBaz"
                 ),
-                .protocolVar(name: "baz", type: .optional(.named("Baz")))
+                .let(name: "baz", type: .optional(.named("Baz")), accessor: .get())
             ]
         ))
         XCTAssertEqual(protocols[2], Decl.protocol(
@@ -168,7 +168,7 @@ final class CodegenTests: XCTestCase {
             conforms: [],
             whereClauses: [],
             decls: [
-                .protocolVar(name: "j", type: .optional(.named("Int")))
+                .let(name: "j", type: .optional(.named("Int")), accessor: .get())
             ])
         )
         
@@ -278,12 +278,13 @@ final class CodegenTests: XCTestCase {
             XCTAssertEqual(conforms, [])
             XCTAssertEqual(whereClauses, [])
             XCTAssertEqual(decls, [
-                .protocolVar(
+                .let(
                     name: "__myUnionFragment",
                     type: .named("MyUnionFragment", genericArguments: [
                         .named("MyUnionA"),
                         .named("MyUnionB")
-                    ])
+                    ]),
+                    accessor: .get()
                 ),
                 .associatedtype(name: "MyUnionA", inherits: "MyUnionFragmentMyUnionA"),
                 .associatedtype(name: "MyUnionB", inherits: "MyUnionFragmentMyUnionB")
@@ -311,7 +312,11 @@ final class CodegenTests: XCTestCase {
             XCTAssertEqual(name, "MyUnionFragmentMyUnionA")
             XCTAssertEqual(conforms, [])
             XCTAssertEqual(whereClauses, [])
-            XCTAssertEqual(decls, [.protocolVar(name: "a1", type: .optional(.named("Int")))])
+            XCTAssertEqual(decls, [.let(
+                name: "a1",
+                type: .optional(.named("Int")),
+                accessor: .get()
+            )])
         } else {
             XCTFail()
         }
@@ -319,7 +324,11 @@ final class CodegenTests: XCTestCase {
             XCTAssertEqual(name, "MyUnionFragmentMyUnionB")
             XCTAssertEqual(conforms, [])
             XCTAssertEqual(whereClauses, [])
-            XCTAssertEqual(decls, [.protocolVar(name: "b1", type: .optional(.named("Int")))])
+            XCTAssertEqual(decls, [.let(
+                name: "b1",
+                type: .optional(.named("Int")),
+                accessor: .get()
+            )])
         } else {
             XCTFail()
         }
@@ -385,37 +394,104 @@ final class CodegenTests: XCTestCase {
         }
         XCTAssertEqual(implDecls[0], .`let`(
             name: "b",
-            type: .optional(.named("B")),
-            defaultValue: nil,
-            isVar: false,
-            getter: nil
+            type: .optional(.named("B"))
         ))
         XCTAssertEqual(implDecls[1], .struct(
             name: "B",
             decls: [
-                .let(name: "b1", type: .optional(.named("Int")), defaultValue: nil, isVar: false, getter: nil),
-                .let(name: "b2", type: .optional(.named("Int")), defaultValue: nil, isVar: false, getter: nil)
+                .let(name: "b1", type: .optional(.named("Int"))),
+                .let(name: "b2", type: .optional(.named("Int")))
             ],
             conforms: ["Codable"]
         ))
-        guard case let .struct("__Other", otherDecls, otherConforms) = decls[1] else {
+        guard case let .struct("__Other", otherDecls, _) = decls[1] else {
             XCTFail()
             return
         }
         XCTAssertEqual(otherDecls[0], .`let`(
             name: "b",
-            type: .optional(.named("B")),
-            defaultValue: nil,
-            isVar: false,
-            getter: nil
+            type: .optional(.named("B"))
         ))
-        XCTAssertEqual(otherDecls[1], .struct(
+        XCTAssertEqual(decls[3], .struct(
             name: "B",
             decls: [
-                .let(name: "b1", type: .optional(.named("Int")), defaultValue: nil, isVar: false, getter: nil)
+                .let(name: "b1", type: .optional(.named("Int")))
             ],
             conforms: ["Codable"]
         ))
+    }
+    
+    func testLiftProtocols() {
+        let decl = Decl.struct(
+            name: "Foo",
+            decls: [
+                .protocol(
+                    name: "Proto1",
+                    conforms: [],
+                    whereClauses: [],
+                    decls: []
+                ),
+                .struct(
+                    name: "Bar",
+                    decls: [
+                        .protocol(
+                            name: "Proto2",
+                            conforms: [],
+                            whereClauses: [],
+                            decls: []
+                        ),
+                        .enum(
+                            name: "Baz",
+                            cases: [],
+                            decls: [],
+                            conforms: ["Proto2"],
+                            defaultCase: nil,
+                            genericParameters: []
+                        )
+                    ],
+                    conforms: ["Proto1"]
+                )
+            ],
+            conforms: []
+        )
+        let expected = [
+            Decl.struct(
+                name: "Foo",
+                decls: [
+                    .struct(
+                        name: "Bar",
+                        decls: [
+                            .enum(
+                                name: "Baz",
+                                cases: [],
+                                decls: [],
+                                conforms: ["FooBarProto2"],
+                                defaultCase: nil,
+                                genericParameters: []
+                            )
+                        ],
+                        conforms: ["FooProto1"]
+                    )
+                ],
+                conforms: []
+            ),
+            .protocol(
+                name: "FooProto1",
+                conforms: [],
+                whereClauses: [],
+                decls: []
+            ),
+            .protocol(
+                name: "FooBarProto2",
+                conforms: [],
+                whereClauses: [],
+                decls: []
+            )
+        ]
+        XCTAssertEqual(
+            liftProtocols(outOf: decl),
+            expected
+        )
     }
 }
 

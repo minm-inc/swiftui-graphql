@@ -284,5 +284,5 @@ To run the tests from Xcode, you need to create a link to the SwiftSyntax lib:
 ```bash
 ln -s \
  /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain//usr/lib/swift/macosx/lib_InternalSwiftSyntaxParser.dylib \
- /Users/luke/Library/Developer/Xcode/DerivedData/Minm-XXX/Build/Products/Debug
+ /Users/luke/Library/Developer/Xcode/DerivedData/Minm-*/Build/Products/Debug
 ```

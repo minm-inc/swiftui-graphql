@@ -12,9 +12,10 @@ struct StructList: DeclListBuildable {
     }
 }
 
-public func generateCode(document rawDocument: Document, schema: GraphQLSchema) -> Syntax  {
+/// Ties together the field resolution stage, the IR gen stage and the Swift gen stage together into one pass
+public func generateCode(document rawDocument: Document, schema: GraphQLSchema) -> Syntax {
     let document = attachCachableFields(schema: schema, document: rawDocument)
-    var decls = [DeclSyntax]()
+    var decls = [Decl]()
     
     let fragments: [FragmentDefinition] = document.definitions.compactMap {
         if case let .executableDefinition(.fragment(fragmentDef)) = $0 {
@@ -27,7 +28,7 @@ public func generateCode(document rawDocument: Document, schema: GraphQLSchema) 
     for def in document.definitions {
         switch def {
         case let .executableDefinition(.operation(def)):
-            decls.append(generateStruct(for: def, schema: schema, fragments: fragments, queryString: document.printed))
+            decls.append(genOperation(def, schema: schema, fragmentDefinitions: fragments))
         case let .executableDefinition(.fragment(def)):
             decls += generateProtocols(for: def, schema: schema, fragmentDefinitions: fragments)
         default:
@@ -35,9 +36,10 @@ public func generateCode(document rawDocument: Document, schema: GraphQLSchema) 
         }
     }
     
+    let swiftGen = SwiftGen()
     let generated = SourceFile {
         Import("SwiftUIGraphQL")
-        StructList(structs: decls)
+        StructList(structs: decls.map(swiftGen.gen))
     }
     return generated.buildSyntax(format: Format(), leadingTrivia: .zero)
 }

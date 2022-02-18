@@ -14,10 +14,12 @@ enum FooFragment<X: FooFragmentX, Y: FooFragmentY> {
 
 protocol FooFragmentX {
     var x1: Int? { get }
+    var z: Int? { get }
 }
 
 protocol FooFragmentY {
     var y: Int? { get }
+    var z: Int? { get }
 }
 
 protocol ContainsBarFragment {
@@ -54,19 +56,16 @@ struct AnonymousQuery: Queryable, Codable {
         case y(Y)
         case __other(__Other)
         struct X: Codable, BazFragment, FooFragmentX, BarFragmentX {
-            let z: Int?
             let x1: Int?
             let x2: X2?
             struct X2: Codable, BarFragmentXX2, BazFragmentX2 {
                 let b: Int?
                 let a: Int?
             }
+            let z: Int?
         }
         struct Y: Codable, FooFragmentY {
-            let z: Int?
             let y: Int?
-        }
-        struct __Other: Codable {
             let z: Int?
         }
         var z: Int? {
@@ -78,6 +77,9 @@ struct AnonymousQuery: Queryable, Codable {
             case .__other(let __other):
                 return __other.z
             }
+        }
+        struct __Other: Codable {
+            let z: Int?
         }
         var __fooFragment: FooFragment<X, Y> {
             switch self {

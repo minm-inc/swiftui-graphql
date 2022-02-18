@@ -13,8 +13,6 @@ import Foundation
  `attachCachableFields` appends these fields to any selection sets for any object that contains these fields
  */
 public func attachCachableFields(schema: GraphQLSchema, document: Document) -> Document {
-
-    
     let typeInfo = TypeInfo(schema: schema)
     
     struct AttachCachableFieldsVisitor: Visitor {

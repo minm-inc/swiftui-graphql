@@ -23,8 +23,7 @@ let package = Package(
         // Dependencies declare other packages that this package depends on.
         // .package(url: /* package url */, from: "1.0.0"),
         .package(url: "https://github.com/apple/swift-argument-parser", revision: "b2975c4"),
-//        .package(url: "https://github.com/GraphQLSwift/GraphQL.git", from: "2.1.2"),
-        .package(name: "GraphQL", path: "/Users/luke/Source/graphql-swift"),
+        .package(url: "https://github.com/minm-inc/GraphQL", revision: "f12c6ba"),
         .package(name: "SwiftSyntax", url: "https://github.com/apple/swift-syntax.git", .exact("0.50500.0")),
         .package(
             url: "https://github.com/apple/swift-collections.git",

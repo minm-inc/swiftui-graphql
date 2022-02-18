@@ -165,7 +165,8 @@ final class ResolveFieldTests: XCTestCase {
                     ],
                     conditional: [:],
                     fragProtos: [:]
-                ))
+                )),
+                "z": .leaf(GraphQLInt)
             ],
             conditional: [:],
             fragProtos: [
@@ -179,7 +180,8 @@ final class ResolveFieldTests: XCTestCase {
         XCTAssertEqual(object.conditional["Y"], ResolvedField.Object(
             type: schema.getType(name: "Y")! as! GraphQLOutputType,
             unconditional: [
-                "y": .leaf(GraphQLInt)
+                "y": .leaf(GraphQLInt),
+                "z": .leaf(GraphQLInt)
             ],
             conditional: [:],
             fragProtos: [:]
@@ -252,6 +254,247 @@ final class ResolveFieldTests: XCTestCase {
             fragProtos: [:]
         )))
     }
+    
+    func testFragmentAndNonFragmentNestedConditional() {
+        let aType = try! GraphQLInterfaceType(
+            name: "A",
+            fields: [
+                "x": GraphQLField(type: GraphQLInt)
+            ]
+        )
+        let bType = try! GraphQLObjectType(
+            name: "B",
+            fields: [
+                "x": GraphQLField(type: GraphQLInt),
+                "y": GraphQLField(type: GraphQLInt)
+            ],
+            interfaces: [aType]
+        )
+        let schema = try! GraphQLSchema(
+            query: GraphQLObjectType(
+                name: "Query",
+                fields: ["a": GraphQLField(type: aType)]
+            ),
+            types: [bType]
+        )
+        
+        let (a, fragments) = getFirstQueryFieldAndFragments(source: """
+        {
+            a { ...F x }
+        }
+        fragment F on A {
+            ... on B {
+                y
+            }
+        }
+        """)
+        let object = resolveFields(
+            selectionSet: a.selectionSet!,
+            parentType: aType,
+            schema: schema,
+            fragments: fragments
+        )
+        XCTAssertEqual(
+            object.conditional["B"]?.unconditional,
+            [
+                "y": .leaf(GraphQLInt),
+                "x": .leaf(GraphQLInt)
+            ]
+        )
+    }
+    
+    func testFragmentAndNonFragmentNestedObjectConditional() {
+        let dType = try! GraphQLObjectType(
+            name: "D",
+            fields: [
+                "x": GraphQLField(type: GraphQLInt),
+                "y": GraphQLField(type: GraphQLInt)
+            ]
+        )
+        let bType = try! GraphQLInterfaceType(
+            name: "B",
+            fields: [
+                "d": GraphQLField(type: dType)
+            ]
+        )
+        let cType = try! GraphQLObjectType(
+            name: "C",
+            fields: [
+                "d": GraphQLField(type: dType),
+            ],
+            interfaces: [bType]
+        )
+        let schema = try! GraphQLSchema(
+            query: GraphQLObjectType(
+                name: "Query",
+                fields: ["b": GraphQLField(type: bType)]
+            ),
+            types: [cType]
+        )
+        
+        let (b, fragments) = getFirstQueryFieldAndFragments(source: """
+        {
+            b {
+                ...F
+                d { y }
+            }
+        }
+        fragment F on B {
+            ... on C {
+                d { x }
+            }
+        }
+        """)
+        let object = resolveFields(
+            selectionSet: b.selectionSet!,
+            parentType: bType,
+            schema: schema,
+            fragments: fragments
+        )
+        guard case let .nested(dObj) = object.conditional["C"]?.unconditional["d"] else {
+            XCTFail()
+            return
+        }
+        XCTAssertEqual(dObj.unconditional.keys, ["x", "y"])
+        guard case let .nested(dObj) = object.unconditional["d"] else {
+            XCTFail()
+            return
+        }
+        XCTAssertEqual(dObj.unconditional.keys, ["y"])
+    }
+    
+    func testConditionalOnConditional() {
+        let cType = try! GraphQLObjectType(
+            name: "C",
+            fields: [
+                "x": GraphQLField(type: GraphQLInt),
+                "y": GraphQLField(type: GraphQLInt)
+            ]
+        )
+        let bType = try! GraphQLInterfaceType(
+            name: "B",
+            fields: [
+                "c": GraphQLField(type: cType)
+            ]
+        )
+        let bImplType = try! GraphQLObjectType(
+            name: "BImpl",
+            fields: [
+                "c": GraphQLField(type: cType)
+            ],
+            interfaces: [bType]
+        )
+        let aType = try! GraphQLInterfaceType(
+            name: "A",
+            fields: [
+                "b": GraphQLField(type: bType)
+            ]
+        )
+        let aImplType = try! GraphQLObjectType(
+            name: "AImpl",
+            fields: [
+                "b": GraphQLField(type: bType)
+            ],
+            interfaces: [aType]
+        )
+        let schema = try! GraphQLSchema(
+            query: GraphQLObjectType(
+                name: "Query",
+                fields: ["a": GraphQLField(type: aType)]
+            ),
+            types: [aImplType, bImplType]
+        )
+        
+        let (a, fragments) = getFirstQueryFieldAndFragments(source: """
+        {
+            a {
+                b {
+                    c {
+                        x
+                    }
+                }
+                ...F
+            }
+        }
+        fragment F on A {
+            ... on AImpl {
+                b {
+                    ... on BImpl {
+                        c { y }
+                    }
+                }
+            }
+        }
+        """)
+        let object = resolveFields(
+            selectionSet: a.selectionSet!,
+            parentType: aType,
+            schema: schema,
+            fragments: fragments
+        )
+        guard case let .nested(bObj) = object.conditional["AImpl"]?.unconditional["b"] else {
+            XCTFail()
+            return
+        }
+        guard case let .nested(cObj) = bObj.conditional["BImpl"]?.unconditional["c"] else {
+            XCTFail()
+            return
+        }
+        XCTAssertEqual(cObj.unconditional.keys, ["y", "x"])
+    }
+    
+    
+//    func testCommunalFieldsOnConditional() {
+//        let aType = try! GraphQLObjectType(
+//            name: "A",
+//            fields: [
+//                "a1": GraphQLField(type: GraphQLInt),
+//                "a2": GraphQLField(type: GraphQLInt)
+//            ]
+//        )
+//        let ifaceType = try! GraphQLInterfaceType(
+//            name: "Iface",
+//            fields: ["a": GraphQLField(type: aType)]
+//        )
+//        let implType = try! GraphQLObjectType(
+//            name: "Impl",
+//            fields: ["a": GraphQLField(type: aType)],
+//            interfaces: [ifaceType]
+//        )
+//        let schema = try! GraphQLSchema(
+//            query: GraphQLObjectType(
+//                name: "Query",
+//                fields: ["iface": GraphQLField(type: ifaceType)]
+//            ),
+//            types: [implType]
+//        )
+//        let (iface, fragments) = getFirstQueryFieldAndFragments(source: """
+//        {
+//            iface {
+//                ... on Impl { a { a1 } }
+//                a { a2 }
+//            }
+//        }
+//        """)
+//        let object = resolveFields(
+//            selectionSet: iface.selectionSet!,
+//            parentType: ifaceType,
+//            schema: schema,
+//            fragments: fragments
+//        )
+//        XCTAssertEqual(object.conditional, [:])
+//        XCTAssertEqual(object.unconditional, [
+//            "a": .nested(ResolvedField.Object(
+//                type: aType,
+//                unconditional: [
+//                    "a1": .leaf(GraphQLInt),
+//                    "a2": .leaf(GraphQLInt)
+//                ],
+//                conditional: [:],
+//                fragProtos: [:]
+//            ))
+//        ])
+//    }
 }
 
 extension ResolvedField: Equatable {
