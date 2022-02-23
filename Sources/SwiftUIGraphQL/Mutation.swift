@@ -50,6 +50,8 @@ public class MutationWatcher<Mutation1: Queryable & Encodable>: ObservableObject
     public init() { }
     
     private var cacheCancellable: AnyCancellable? = nil
+    
+    @discardableResult
     public func execute(variables: Mutation1.Variables) async throws -> Mutation1 {
         self.cacheCancellable = self.graphqlClient.cachePublisher
             .scan((nil, await self.graphqlClient.getCache())) { ($0.1, $1) }
@@ -66,9 +68,10 @@ public class MutationWatcher<Mutation1: Queryable & Encodable>: ObservableObject
                     switch self.state {
                     case .loaded(let data):
                         let value: Value = try! ValueEncoder().encode(data)
-                        let newData: Value = newcache.keys.reduce(value) { updateDataWithCache(data: $0, with: cache, newlyChangedKey: $1) }
+                        let newValue = update(data: value, withChangedObjects: newcache.keys.reduce(into: [:]) { $0[$1] = cache[$1] })
+                        let data = try! ValueDecoder().decode(Mutation1.self, from: newValue)
                         DispatchQueue.main.async {
-                            self.state = .loaded(data: try! ValueDecoder().decode(Mutation1.self, from: newData))
+                            self.state = .loaded(data: data)
                         }
                     default:
                         break

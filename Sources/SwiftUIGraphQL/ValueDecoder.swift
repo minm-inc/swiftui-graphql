@@ -313,11 +313,11 @@ fileprivate struct ValueDecoderImpl: Decoder {
         }
         
         func nestedContainer<NestedKey>(keyedBy type: NestedKey.Type, forKey key: Key) throws -> KeyedDecodingContainer<NestedKey> where NestedKey : CodingKey {
-            try ValueDecoderImpl(codingPath: codingPath, value: try lookup(key)).container(keyedBy: type)
+            try ValueDecoderImpl(codingPath: codingPath + [key], value: try lookup(key)).container(keyedBy: type)
         }
 
         func nestedUnkeyedContainer(forKey key: Key) throws -> UnkeyedDecodingContainer {
-            try ValueDecoderImpl(codingPath: codingPath, value: try lookup(key)).unkeyedContainer()
+            try ValueDecoderImpl(codingPath: codingPath + [key], value: try lookup(key)).unkeyedContainer()
         }
         func superDecoder() throws -> Decoder {
             return try superDecoder(forKey: Key(stringValue: "super")!)

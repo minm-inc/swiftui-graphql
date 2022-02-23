@@ -52,4 +52,38 @@ final class SwiftUIGraphQLTests: XCTestCase {
         
         XCTAssertEqual(.object(["strings": .list([.string("hello"), .string("world")])]), res)
     }
+    
+    func testMergeCacheObjectsInList() {
+        let incoming = Value.object([
+            "foo": .object([
+                "__typename": .string("Foo"),
+                "id": .string("1"),
+                "bars": .list([
+                    .object([
+                        "__typename": .string("Bar"),
+                        "id": .string("1")
+                    ])
+                ])
+            ])
+        ])
+        let existingCache: [CacheKey: CacheObject] = [
+            CacheKey(type: "Foo", id: "1"): [:]
+        ]
+        let expectedCache: [CacheKey: CacheObject] = [
+            CacheKey(type: "Foo", id: "1"): [
+                "__typename": .string("Foo"),
+                "id": .string("1"),
+                "bars": .list([
+                    .reference(CacheKey(type: "Bar", id: "1"))
+                ])
+            ],
+            CacheKey(type: "Bar", id: "1"): [
+                "__typename": .string("Bar"),
+                "id": .string("1")
+            ]
+        ]
+        let cache = Cache(store: existingCache)
+        cache.mergeCache(incoming: incoming)
+        XCTAssertEqual(cache.store, expectedCache)
+    }
 }

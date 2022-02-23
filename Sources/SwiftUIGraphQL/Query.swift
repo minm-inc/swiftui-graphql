@@ -36,6 +36,10 @@ public struct Query<Query: Queryable>: DynamicProperty {
         decoder.dateDecodingStrategy = .iso8601
         self.prepopulatedResponse = try decoder.decode(QueryResponse<Query>.self, from: data)
     }
+    
+    public init(from prepopulatedResponse: QueryResponse<Query>) {
+        self.prepopulatedResponse = prepopulatedResponse
+    }
 }
 
 //class CacheListener: ObservableObject {
@@ -127,9 +131,10 @@ public class QueryWatcher<Query: Queryable & Encodable>: ObservableObject {
                             switch self.state {
                             case .loaded(let data):
                                 let value: Value = try! ValueEncoder().encode(data)
-                                let newData: Value = newcache.keys.reduce(value) { updateDataWithCache(data: $0, with: cache, newlyChangedKey: $1) }
+                                let newValue = update(data: value, withChangedObjects: newcache.keys.reduce(into: [:]) { $0[$1] = cache[$1] })
+                                let data = try! ValueDecoder().decode(Query.self, from: newValue)
                                 DispatchQueue.main.async {
-                                    self.state = .loaded(data: try! ValueDecoder().decode(Query.self, from: newData))
+                                    self.state = .loaded(data: data)
                                 }
                             default:
                                 break

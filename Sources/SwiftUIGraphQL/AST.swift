@@ -224,14 +224,12 @@ extension String: Value1Param {
 }
 
 public enum Value1<T>: Equatable, Hashable, QueryPrintable where T: Value1Param {
-    
-    
     case variable(T)
     case boolean(Bool)
     case string(String)
     case int(Int)
     case float(Double)
-    case enumm(String)
+    case `enum`(String)
     case list([Value1<T>])
     case object([String: Value1<T>])
     case null
@@ -252,7 +250,7 @@ public enum Value1<T>: Equatable, Hashable, QueryPrintable where T: Value1Param 
             return "{" + obj.map { $0.key + ": " + $0.value.printed }.joined(separator: ",") + "}"
         case .null:
             return "null"
-        case .enumm(let x):
+        case .`enum`(let x):
             return "\"" + x + "\""
         case .variable(let x):
             return "$\(x.variableString)"
@@ -281,7 +279,7 @@ extension Value1: Codable {
             try obj.encode(to: encoder)
         case .variable(let x):
             try x.encode(to: encoder)
-        case .enumm(let x):
+        case .`enum`(let x):
             try x.encode(to: encoder)
         }
     }

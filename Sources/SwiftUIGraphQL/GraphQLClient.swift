@@ -26,69 +26,8 @@ public protocol Queryable: Codable {
     associatedtype Variables = NoVariables where Variables: Encodable & Equatable
 }
 
-struct CacheKey: Hashable {
-    let type: String
-    let id: String
-}
-
-enum CacheObject: Equatable {
-    case boolean(Bool)
-    case string(String)
-    case int(Int)
-    case float(Double)
-    case enumm(String)
-    case reference(CacheKey)
-    case object([String: CacheObject])
-    case list([CacheObject])
-    case null
-    
-    init(from: Value) {
-        switch from {
-        case .boolean(let x):
-            self = .boolean(x)
-        case .string(let x):
-            self = .string(x)
-        case .int(let x):
-            self = .int(x)
-        case .float(let x):
-            self = .float(x)
-        case .object(let x):
-            self = .object(x.mapValues(CacheObject.init))
-        case .list(let x):
-            self = .list(x.map(CacheObject.init))
-        case .enumm(let x):
-            self = .enumm(x)
-        case .null:
-            self = .null
-        }
-    }
-    
-    func toValue(cache: [CacheKey: CacheObject]) -> Value {
-        switch self {
-        case .boolean(let x):
-            return .boolean(x)
-        case .string(let x):
-            return .string(x)
-        case .int(let x):
-            return .int(x)
-        case .float(let x):
-            return .float(x)
-        case .object(let x):
-            return .object(x.mapValues { $0.toValue(cache: cache) })
-        case .list(let x):
-            return .list(x.map { $0.toValue(cache: cache) })
-        case .enumm(let x):
-            return .enumm(x)
-        case .reference(let key):
-            return cache[key]!.toValue(cache: cache)
-        case .null:
-            return .null
-        }
-    }
-}
-
 public actor GraphQLClient: ObservableObject {
-    var cache: [CacheKey: CacheObject] = [:]
+    private var cache = Cache()
     let cachePublisher = PassthroughSubject<[CacheKey: CacheObject], Never>()
     
     let apiUrl: URL
@@ -97,40 +36,6 @@ public actor GraphQLClient: ObservableObject {
     public init(url: URL, withHeaders headerCallback: @escaping () -> [String: String]) {
         self.apiUrl = url
         self.headerCallback = headerCallback
-    }
-    
-    @discardableResult private func mergeCache(incoming: Value) -> CacheKey? {
-        switch incoming {
-        case .object(let incoming):
-            if case .string(let typename) = incoming["__typename"], case .string(let id) = incoming["id"] {
-//                let cacheableFields = incoming.filter { !["__typename", "id"].contains($0.key) }
-                let cacheEntries = incoming.mapValues { v -> CacheObject in
-                    if let cacheKey = mergeCache(incoming: v) {
-                        return .reference(cacheKey)
-                    } else {
-                        return CacheObject(from: v)
-                    }
-                }
-                
-                let cacheKey = CacheKey(type: typename, id: id)
-                switch cache[cacheKey] {
-                case .object(let existingObj):
-                    cache[cacheKey] = .object(existingObj.merging(cacheEntries) { $1 })
-                default:
-                    cache[cacheKey] = .object(cacheEntries)
-                }
-                return cacheKey
-            } else {
-                incoming.values.forEach { mergeCache(incoming: $0) }
-                return nil
-            }
-        case .list(let incoming):
-            incoming.forEach { mergeCache(incoming: $0) }
-            return nil
-        default:
-            return nil
-        }
-        
     }
     
     // Note: try! all the encoding/decoding as these are programming errors
@@ -153,19 +58,24 @@ public actor GraphQLClient: ObservableObject {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let graphqlResponse = try! decoder.decode(QueryResponse<T>.self, from: data)
+        
+        if let error = graphqlResponse.error {
+            throw QueryError.invalid
+        }
+        
         guard let decodedData = graphqlResponse.data else {
             throw QueryError.invalid
         }
         
         let looseData = try! decoder.decode(Value.self, from: data)
-        _ = mergeCache(incoming: looseData)
-        cachePublisher.send(cache)
+        cache.mergeCache(incoming: looseData)
+        cachePublisher.send(cache.store)
         
         return decodedData
     }
     
-    func getCache() async -> [CacheKey: CacheObject] {
-        return cache
+    func getCache() -> [CacheKey: CacheObject] {
+        return cache.store
     }
     
 }
@@ -223,24 +133,38 @@ public func makeRequest<T: Decodable>(_ queryRequest: QueryRequest, endpoint: UR
     return decodedData
 }
 
-// TODO: Do this in one pass with all the cache keys
-func updateDataWithCache(data: Value, with cache: [CacheKey: CacheObject], newlyChangedKey: CacheKey) -> Value {
+func update(data: Value, withChangedObjects changedObjects: [CacheKey: CacheObject?]) -> Value {
     switch data {
     case .object(let obj):
-        if case .string(newlyChangedKey.type) = obj["__typename"], case .string(newlyChangedKey.id) = obj["id"] {
-            // This is the referenced object: replace it
-            if let incoming = cache[newlyChangedKey] {
-                // TODO: Object merging strategies
-                return incoming.toValue(cache: cache)
+        let newObj = changedObjects.reduce(into: obj) { obj, x in
+            let (changedKey, changedObj) = x
+            if case .string(changedKey.type) = obj["__typename"], case .string(changedKey.id) = obj["id"] {
+                // This is the referenced object: replace it
+                if let incoming = changedObj {
+                    // To prevent infinite recursion with references, this first traverses the existing object till it reaches the leaves
+                    // And **only** updates leaf values: It never attempts to update objects
+                    for (key, val) in obj {
+                        switch val {
+                        case .object, .list:
+                            obj[key] = update(data: val, withChangedObjects: changedObjects)
+                        default:
+                            obj[key] = incoming[key]!.toValue()
+                        }
+                    }
+                } else {
+                    // If we can't find it in the cache then it no longer exists?
+                    fatalError("Decide what to do here")
+                }
+            } else {
+                obj = obj.mapValues { update(data: $0, withChangedObjects: changedObjects) }
             }
-            // If we can't find it in the cache then it no longer exists?
-            fatalError("Decide what to do here")
-        } else {
-            return .object(obj.mapValues { updateDataWithCache(data: $0, with: cache, newlyChangedKey: newlyChangedKey) })
         }
+        return .object(newObj)
+       
     case .list(let objs):
-        return .list(objs.map { updateDataWithCache(data: $0, with: cache, newlyChangedKey: newlyChangedKey)})
+        return .list(objs.map { update(data: $0, withChangedObjects: changedObjects) })
     default:
         return data
     }
 }
+
