@@ -14,7 +14,7 @@ struct StructList: DeclListBuildable {
 
 /// Ties together the field resolution stage, the IR gen stage and the Swift gen stage together into one pass
 public func generateCode(document rawDocument: Document, schema: GraphQLSchema) -> Syntax {
-    let document = attachCachableFields(schema: schema, document: rawDocument)
+    let document = attachCacheableFields(schema: schema, document: rawDocument)
     var decls = [Decl]()
     
     let fragments: [FragmentDefinition] = document.definitions.compactMap {

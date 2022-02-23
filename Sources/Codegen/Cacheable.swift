@@ -1,5 +1,5 @@
 //
-//  Cachable.swift
+//  Cacheable.swift
 //  
 //
 //  Created by Luke Lau on 10/12/2021.
@@ -10,15 +10,15 @@ import Foundation
 
 /**
  In order to cache objects that are returned from any queries, we need to know the `id` and `__typename` fields to any object that has an `id`.
- `attachCachableFields` appends these fields to any selection sets for any object that contains these fields
+ `attachCacheableFields` appends these fields to any selection sets for any object that contains these fields
  */
-public func attachCachableFields(schema: GraphQLSchema, document: Document) -> Document {
+public func attachCacheableFields(schema: GraphQLSchema, document: Document) -> Document {
     let typeInfo = TypeInfo(schema: schema)
     
-    struct AttachCachableFieldsVisitor: Visitor {
+    struct AttachCacheableFieldsVisitor: Visitor {
         let typeInfo: TypeInfo
         func enter(selectionSet: SelectionSet, key: AnyKeyPath?, parent: VisitorParent?, ancestors: [VisitorParent]) -> VisitResult<SelectionSet> {
-            guard let type = typeInfo.type, isCachable(type: type) else {
+            guard let type = typeInfo.type, isCacheable(type: type) else {
                 return .continue
             }
             func makeFieldIfNeeded(named: String) -> [Selection] {
@@ -45,22 +45,22 @@ public func attachCachableFields(schema: GraphQLSchema, document: Document) -> D
         }
     }
     
-    let visitor = VisitorWithTypeInfo(visitor: AttachCachableFieldsVisitor(typeInfo: typeInfo), typeInfo: typeInfo)
+    let visitor = VisitorWithTypeInfo(visitor: AttachCacheableFieldsVisitor(typeInfo: typeInfo), typeInfo: typeInfo)
     
     return visit(root: document, visitor: visitor)
 }
 
 
-func isCachable(type: GraphQLType) -> Bool {
+func isCacheable(type: GraphQLType) -> Bool {
     let fields: GraphQLFieldDefinitionMap
     if let type = type as? GraphQLObjectType {
         fields = type.fields
     } else if let type = type as? GraphQLInterfaceType {
         fields = type.fields
     } else if let type = type as? GraphQLList {
-        return isCachable(type: type.ofType)
+        return isCacheable(type: type.ofType)
     } else if let type = type as? GraphQLNonNull {
-        return isCachable(type: type.ofType)
+        return isCacheable(type: type.ofType)
     } else {
         return false
     }

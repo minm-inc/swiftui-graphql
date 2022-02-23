@@ -83,7 +83,7 @@ func generateProtocols(object: ResolvedField.Object, named: String, parentType: 
                 name: named,
                 cases: generateCasesFromPossibleTypes(typeNames: object.conditional.keys),
                 decls: [],
-                conforms: isCachable(type: parentType) ? ["Identifiable"] : [],
+                conforms: [],
                 defaultCase: Decl.Case(name: "__other", nestedTypeName: nil),
                 genericParameters: object.conditional.keys.map { typeName in
                     Decl.GenericParameter(
@@ -105,11 +105,13 @@ func generateProtocols(object: ResolvedField.Object, named: String, parentType: 
         }
     }
     
-    let conforms: [String]
+    
+    var conforms: [String] = []
     if object.conditional.isEmpty {
-        conforms = object.fragProtos.keys.map { $0.protocolName }
-    } else {
-        conforms = []
+        conforms += object.fragProtos.keys.map { $0.protocolName }
+    }
+    if isCacheable(type: parentType) {
+        conforms.append("Cacheable")
     }
     
     return [Decl.protocol(name: protocolName, conforms: conforms, whereClauses: whereClauses, decls: protocolDecls)] + topLevelDecls

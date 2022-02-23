@@ -96,8 +96,8 @@ private class StructGenerator {
         
         let type = underlyingType(object.type)
         var conforms = ["Codable"]
-        if isCachable(type: type) {
-            conforms.append("Identifiable")
+        if isCacheable(type: type) {
+            conforms.append("Cacheable")
         }
         
         if object.conditional.isEmpty {

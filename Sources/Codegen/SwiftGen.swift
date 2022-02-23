@@ -319,7 +319,8 @@ class SwiftGen {
                                             genDecode(
                                                 container: "container",
                                                 type: SyntaxFactory.makeTypeIdentifier("String"),
-                                                forKey: SyntaxFactory.makeIdentifier("__typename")
+                                                forKey: SyntaxFactory.makeIdentifier("__typename"),
+                                                optionalTry: false
                                             )
                                         )
                                     })
@@ -586,9 +587,12 @@ class SwiftGen {
     /**
      Generates the `try container.decode(Type.self, forKey: .blah)` part
      */
-    private func genDecode(container: String, type: TypeSyntax, forKey: TokenSyntax) -> ExprSyntax {
+    private func genDecode(container: String, type: TypeSyntax, forKey: TokenSyntax, optionalTry: Bool) -> ExprSyntax {
         ExprSyntax(TryExprSyntax {
-            $0.useTryKeyword(SyntaxFactory.makeTryKeyword().withTrailingTrivia(.spaces(1)))
+            $0.useTryKeyword(SyntaxFactory.makeTryKeyword())
+            if optionalTry {
+                $0.useQuestionOrExclamationMark(SyntaxFactory.makePostfixQuestionMarkToken())
+            }
             $0.useExpression(ExprSyntax(
                 FunctionCallExprSyntax {
                     $0.useCalledExpression(ExprSyntax(
@@ -629,7 +633,7 @@ class SwiftGen {
                         ))
                     })
                 }
-            ))
+            ).withLeadingTrivia(.spaces(1)))
         })
     }
     
