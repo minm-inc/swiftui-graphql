@@ -124,6 +124,7 @@ private class StructGenerator {
     }
     
     private let defaultCaseName = "__other"
+    private let defaultTypeName = "__Other"
 
     private func genConditionalEnum(type: GraphQLNamedType, schema: GraphQLSchema, object: ResolvedField.Object, named: String, conforms: [String]) -> Decl {
         
@@ -164,7 +165,7 @@ private class StructGenerator {
         decls.insert(contentsOf: nestedTypeDecls, at: 0)
         
         let defaultDecl = Decl.struct(
-            name: defaultCaseName.capitalized,
+            name: defaultTypeName,
             decls: genDecls(for: object.unconditional, parentType: type, generateTypeDefs: false),
             conforms: ["Codable"]
         )
@@ -288,7 +289,7 @@ private class StructGenerator {
             conforms: allConforms,
             defaultCase: Decl.Case(
                 name: defaultCaseName,
-                nestedTypeName: defaultCaseName.capitalized
+                nestedTypeName: defaultTypeName
             ),
             genericParameters: []
         )

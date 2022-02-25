@@ -31,7 +31,7 @@ func generateProtocols(object: ResolvedField.Object, named: String, parentType: 
             return [.let(name: fieldName, type: declType(for: type), accessor: .get())]
         case let .nested(nestedObj):
             let underlyingType = underlyingType(nestedObj.type)
-            var protocolName = named + fieldName.capitalized
+            var protocolName = named + fieldName.firstUppercased
             topLevelDecls += generateProtocols(
                 object: nestedObj,
                 named: protocolName,
