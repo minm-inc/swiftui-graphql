@@ -1,16 +1,5 @@
 import GraphQL
 import SwiftSyntax
-import SwiftSyntaxBuilder
-
-struct StructList: DeclListBuildable {
-    var structs: [DeclSyntax]
-    func buildSyntaxList(format: Format, leadingTrivia: Trivia) -> [Syntax] {
-        structs.map { Syntax($0) }
-    }
-    func buildDeclList(format: Format, leadingTrivia: Trivia) -> [DeclSyntax] {
-        structs
-    }
-}
 
 /// Ties together the field resolution stage, the IR gen stage and the Swift gen stage together into one pass
 public func generateCode(document rawDocument: Document, schema: GraphQLSchema) -> Syntax {
@@ -37,9 +26,24 @@ public func generateCode(document rawDocument: Document, schema: GraphQLSchema) 
     }
     
     let swiftGen = SwiftGen()
-    let generated = SourceFile {
-        Import("SwiftUIGraphQL")
-        StructList(structs: decls.map(swiftGen.gen))
+    
+    let sourceFile = SourceFileSyntax {
+        $0.addStatement(CodeBlockItemSyntax {
+            $0.useItem(Syntax(
+                ImportDeclSyntax {
+                    $0.useImportTok(SyntaxFactory.makeImportKeyword().withTrailingTrivia(.spaces(1)))
+                    $0.addPathComponent(AccessPathComponentSyntax {
+                        $0.useName(SyntaxFactory.makeIdentifier("SwiftUIGraphQL"))
+                    })
+                }.withTrailingTrivia(.newlines(1))
+            ))
+        })
+        for decl in decls.map(swiftGen.gen) {
+            $0.addStatement(CodeBlockItemSyntax {
+                $0.useItem(Syntax(decl))
+            })
+        }
     }
-    return generated.buildSyntax(format: Format(), leadingTrivia: .zero)
+    
+    return Syntax(sourceFile)
 }

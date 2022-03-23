@@ -9,7 +9,6 @@ import ArgumentParser
 import Foundation
 import GraphQL
 import SwiftSyntax
-import SwiftSyntaxBuilder
 import SwiftUIGraphQL
 import Codegen
 
@@ -21,10 +20,7 @@ struct StandardError: TextOutputStream {
 }
 var standardError = StandardError()
 
-@main enum Main: AsyncMainProtocol {
-    typealias Command = Codegen
-}
-
+@main
 struct Codegen: AsyncParsableCommand {
     
     @Option(help: "Path to the schema.json file, or URL to the endpoint to perform an introspection query on", transform: {
@@ -42,6 +38,7 @@ struct Codegen: AsyncParsableCommand {
     func loadSchema() async throws -> GraphQLSchema {
         let queryRequest = QueryRequest(query: getIntrospectionQuery())
         let introspection: IntrospectionQuery
+        
         if schema.host != nil {
             introspection = try await makeRequest(queryRequest, endpoint: schema)
         } else {

@@ -118,7 +118,7 @@ public enum OperationDefinition: QueryPrintable {
 }
 
 public struct VariableDefinition: QueryPrintable {
-    public init(variable: String, type: Typ, defaultValue: Value? = nil, directives: [String]? = nil) {
+    public init(variable: String, type: `Type`, defaultValue: Value? = nil, directives: [String]? = nil) {
         self.variable = variable
         self.type = type
         self.defaultValue = defaultValue
@@ -126,7 +126,7 @@ public struct VariableDefinition: QueryPrintable {
     }
     
     let variable: String
-    let type: Typ
+    let type: `Type`
     let defaultValue: Value?
     let directives: [String]?
     
@@ -144,38 +144,35 @@ public struct VariableDefinition: QueryPrintable {
     
 }
 
-public indirect enum Typ: QueryPrintable {
-    case namedType(NamedType)
-    case listType(ListType)
-    case nonNullType(NonNullType)
+public indirect enum `Type`: QueryPrintable {
+    case named(String)
+    case list(`Type`)
+    case nonNull(NonNullType)
     
     var printed: String {
         switch self {
-        case .namedType(let s):
+        case .named(let s):
             return s
-        case .listType(let t):
+        case .list(let t):
             return "[\(t.printed)]"
-        case .nonNullType(let t):
+        case .nonNull(let t):
             return t.printed
         }
     }
 }
 
 public indirect enum NonNullType: QueryPrintable {
-    case nonNullNamedType(NamedType)
-    case nonNullListType(ListType)
+    case named(String)
+    case nonNull(`Type`)
     var printed: String {
         switch self {
-        case .nonNullNamedType(let s):
+        case .named(let s):
             return s + "!"
-        case .nonNullListType(let t):
+        case .nonNull(let t):
             return t.printed + "!"
         }
     }
 }
-        
-public typealias NamedType = String
-public typealias ListType = Typ
 
 public enum Selection: QueryPrintable, Hashable {
     case field(alias: String? = nil, name: String, arguments: [String: NonConstValue]? = nil, directives: [String]? = nil, selectionSet: Set<Selection>? = nil)
@@ -215,8 +212,10 @@ public protocol Value1Param: Hashable, Encodable {
     var variableString: String { get }
 }
 
-public enum Const: Hashable, Value1Param {
-    public var variableString: String { "" }
+extension Never: Value1Param, Encodable {
+    public func encode(to encoder: Encoder) throws {
+    }
+    public var variableString: String { fatalError() }
 }
 
 extension String: Value1Param {
@@ -305,6 +304,11 @@ extension Value1: Codable {
     }
 }
 
-public typealias Value = Value1<Const>
+public typealias Value = Value1<Never>
 public typealias NonConstValue = Value1<String>
 
+public extension Encodable {
+    func toValue() -> Value {
+        try! ValueEncoder().encode(self)
+    }
+}

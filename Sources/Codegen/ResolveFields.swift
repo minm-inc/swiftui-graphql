@@ -5,9 +5,11 @@
 //  Created by Luke Lau on 16/12/2021.
 //
 
-import Collections
 import GraphQL
+import SwiftUIGraphQL
+import OrderedCollections
 
+// TODO: Replace this pass with another pass that feeds in from resolveselections
 enum ResolvedField {
     case leaf(GraphQLOutputType)
     case nested(Object)
@@ -65,6 +67,7 @@ indirect enum FragmentQualifier: Hashable {
     }
 }
 struct ProtocolInfo: Hashable {
+    let possibleTypes: OrderedSet<String>
     let declaredFields: OrderedSet<String>
     let alsoConformsTo: OrderedDictionary<FragmentQualifier, ProtocolInfo>
     let isConditional: Bool
@@ -141,6 +144,7 @@ func resolveFields(selectionSet: SelectionSet, parentType: GraphQLOutputType, sc
                 if let fragmentName = fragmentName {
                     let qualifier = FragmentQualifier.base(fragmentName)
                     let fragmentInfo = ProtocolInfo(
+                        possibleTypes: object.conditional.keys,
                         declaredFields: object.unconditional.keys,
                         alsoConformsTo: object.fragProtos,
                         isConditional: !object.conditional.isEmpty
@@ -165,6 +169,7 @@ func resolveFields(selectionSet: SelectionSet, parentType: GraphQLOutputType, sc
                 if let fragmentName = fragmentName {
                     let qualifier = FragmentQualifier.base(fragmentName)
                     let fragmentInfo = ProtocolInfo(
+                        possibleTypes: object.conditional.keys,
                         declaredFields: object.unconditional.keys,
                         alsoConformsTo: object.fragProtos,
                         isConditional: !object.conditional.isEmpty
@@ -249,12 +254,16 @@ private func mergeObjects(_ a: ResolvedField.Object, _ b: ResolvedField.Object) 
     if !isEqualType(a.type, b.type) {
         fatalError("Merging two objects with different types")
     }
-    return ResolvedField.Object(
+    let unconditional = mergeResolvedFieldMaps(a.unconditional, b.unconditional)
+    let conditional = a.conditional.merging(b.conditional, uniquingKeysWith: mergeObjects).mapValues(mergeObjectConditional(withUnconditional: unconditional))
+    let res = ResolvedField.Object(
         type: a.type,
-        unconditional: mergeResolvedFieldMaps(a.unconditional, b.unconditional),
-        conditional: a.conditional.merging(b.conditional, uniquingKeysWith: mergeObjects),
+        unconditional: unconditional,
+        conditional: conditional,
         fragProtos: a.fragProtos.merging(b.fragProtos, uniquingKeysWith: mergeFragmentInfos)
     )
+    assert(unconditionalsCoverConditionalUnconditionals(resolvedField: .nested(res)))
+    return res
 }
 
 private func mergeResolvedFields(_ a: ResolvedField, _ b: ResolvedField) -> ResolvedField {
@@ -274,6 +283,7 @@ private func mergeResolvedFields(_ a: ResolvedField, _ b: ResolvedField) -> Reso
 
 private func mergeFragmentInfos(_ a: ProtocolInfo, _ b: ProtocolInfo) -> ProtocolInfo {
     ProtocolInfo(
+        possibleTypes: a.possibleTypes.union(b.possibleTypes),
         declaredFields: a.declaredFields.union(b.declaredFields),
         alsoConformsTo: a.alsoConformsTo.merging(b.alsoConformsTo, uniquingKeysWith: mergeFragmentInfos),
         isConditional: a.isConditional || b.isConditional
@@ -301,6 +311,7 @@ func attachFragProtos(to object: ResolvedField.Object, fragment: FragmentDefinit
                 var newFragProtos = object.fragProtos
                 let newQualifier = FragmentQualifier.nested(qualifier, fieldName)
                 newFragProtos[newQualifier] = ProtocolInfo(
+                    possibleTypes: fragmentObject.conditional.keys,
                     declaredFields: fragmentObject.unconditional.keys,
                     alsoConformsTo: [:],
                     isConditional: !fragmentObject.conditional.isEmpty
@@ -326,6 +337,7 @@ func attachFragProtos(to object: ResolvedField.Object, fragment: FragmentDefinit
                 let object = attachFragProtos(to: x.value, qualifier: newQuali, fragmentObject: condFragObj)
                 var newFragProtos = object.fragProtos
                 newFragProtos[newQuali] = ProtocolInfo(
+                    possibleTypes: object.conditional.keys,
                     declaredFields: object.unconditional.keys,
                     alsoConformsTo: object.fragProtos,
                     isConditional: false
@@ -377,4 +389,26 @@ func attachFragProtos(to object: ResolvedField.Object, fragment: FragmentDefinit
 extension String {
     var firstUppercased: String { prefix(1).uppercased() + dropFirst() }
     var firstLowercased: String { prefix(1).lowercased() + dropFirst() }
+}
+
+/// Useful for sanity checking that every object.conditional.unconditional is also included in the object.unconditional
+func unconditionalsCoverConditionalUnconditionals(resolvedField: ResolvedField) -> Bool {
+    switch resolvedField {
+    case .leaf:
+        return true
+    case .nested(let object):
+        let unconditionalKeys = Set(object.unconditional.keys)
+        for conditional in object.conditional.values {
+            if !unconditionalKeys.isSubset(of: conditional.unconditional.keys) {
+                return false
+            }
+        }
+        if !object.unconditional.values.allSatisfy(unconditionalsCoverConditionalUnconditionals) {
+            return false
+        }
+        if !object.conditional.values.map({ .nested($0) }).allSatisfy(unconditionalsCoverConditionalUnconditionals) {
+            return false
+        }
+        return true
+    }
 }

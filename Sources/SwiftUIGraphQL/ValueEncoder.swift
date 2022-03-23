@@ -163,8 +163,7 @@ fileprivate class ValueEncoderImpl<Const: Value1Param>: Encoder {
             obj[key.stringValue] = .encoder(encoder)
             return encoder
         }
-        
-        
+         
     }
     
     func container<Key>(keyedBy type: Key.Type) -> KeyedEncodingContainer<Key> where Key : CodingKey {

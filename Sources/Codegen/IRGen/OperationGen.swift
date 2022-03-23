@@ -1,5 +1,4 @@
 import GraphQL
-import Collections
 
 func genOperation(_ operation: OperationDefinition, schema: GraphQLSchema, fragmentDefinitions: [FragmentDefinition]) -> Decl {
     var object = resolveFields(
@@ -46,9 +45,23 @@ func genOperation(_ operation: OperationDefinition, schema: GraphQLSchema, fragm
     guard case let .struct(name, decls, conforms) = structDecl else {
         fatalError()
     }
+    
+    let resolvedSelections = resolve(
+        selectionSet: operation.selectionSet,
+        parentType: operationRootType(for: operation.operation, schema: schema),
+        schema: schema,
+        fragments: fragmentDefinitions
+    )
+    let selectionDecl = Decl.let(
+        name: "selections",
+        type: .array(.named("ResolvedSelection", genericArguments: [.named("String")])),
+        initializer: gen(resolvedSelections: resolvedSelections),
+        isStatic: true
+    )
+    
     return .struct(
         name: name,
-        decls: decls + [queryStrDecl, variablesStruct].compactMap { $0 },
+        decls: decls + [queryStrDecl, variablesStruct, selectionDecl].compactMap { $0 },
         conforms: ["Queryable"] + conforms
     )
 }
@@ -109,7 +122,7 @@ private class StructGenerator {
             return Decl.struct(
                 name: named.firstUppercased,
                 decls: genDecls(for: object.unconditional, parentType: type) + extraDecls,
-                conforms: conforms + object.fragProtos.keys.map { $0.protocolName }
+                conforms: conforms + object.fragProtos.keys.map(\.protocolName)
             )
         } else {
             // If there are conditional fields, then we'll need to generate an enum with nested structs inside them.
@@ -195,7 +208,7 @@ private class StructGenerator {
                             let enumName = typeConstraintName.firstLowercased
                             return Decl.Syntax.SwitchCase(
                                 enumName: enumName,
-                                binds: [enumName],
+                                binds: [.named(enumName)],
                                 returns: .memberAccess(member: name, base: .identifier(enumName))
                             )
                         }
@@ -232,13 +245,13 @@ private class StructGenerator {
                             }
                         return Decl.Syntax.SwitchCase(
                             enumName: enumName,
-                            binds: [enumName],
+                            binds: [.named(enumName)],
                             returns: returns
                         )
                     } + [
                         Decl.Syntax.SwitchCase(
                             enumName: defaultCaseName,
-                            binds: [defaultCaseName],
+                            binds: [.named(defaultCaseName)],
                             returns: .memberAccess(
                                 member: fieldName,
                                 base: .identifier(defaultCaseName)
@@ -252,21 +265,30 @@ private class StructGenerator {
         
         var allConforms = conforms
         
-        for fragQuali in object.fragProtos.filter({ $0.value.isConditional }).keys {
+        for (fragQuali, fragProto) in object.fragProtos.filter({ $0.value.isConditional }) {
             allConforms.append("Contains" + fragQuali.protocolName)
             decls.append(
                 .let(name: "__\(fragQuali.protocolName.firstLowercased)",
-                     type: makeConditionalFragmentType(named: fragQuali.protocolName, conditional: object.conditional),
+                     type: makeConditionalFragmentType(named: fragQuali.protocolName, possibleTypes: fragProto.possibleTypes),
                      accessor: .get(.returnSwitch(
                         expr: .self,
-                        cases: object.conditional.keys.map { $0.firstLowercased }.map { typeConstraintName in
-                            Decl.Syntax.SwitchCase(
-                                enumName: typeConstraintName,
-                                binds: [typeConstraintName],
-                                returns: .functionCall(
+                        cases: object.conditional.keys.map(\.firstLowercased).map { typeConstraintName in
+                            let returns: Expr
+                            let binds: [Decl.Syntax.SwitchCase.Bind]
+                            if !fragProto.possibleTypes.contains(typeConstraintName.firstUppercased) {
+                                returns = .memberAccess(member: defaultCaseName)
+                                binds = []
+                            } else {
+                                returns = .functionCall(
                                     called: .memberAccess(member: typeConstraintName),
                                     args: [.unnamed(.identifier(typeConstraintName))]
                                 )
+                                binds = [.named(typeConstraintName)]
+                            }
+                            return Decl.Syntax.SwitchCase(
+                                enumName: typeConstraintName,
+                                binds: binds,
+                                returns: returns
                             )
                         } + [Decl.Syntax.SwitchCase(
                             enumName: defaultCaseName,
@@ -383,7 +405,7 @@ private class StructGenerator {
         }
         
         if !fromObject.conditional.isEmpty {
-            body = .returnSwitch(expr: .`self`, cases: (fromObject.conditional.keys + [defaultCaseName]).map { conditionalType in
+            body = .returnSwitch(expr: .self, cases: (fromObject.conditional.keys + [defaultCaseName]).map { conditionalType in
                 let bindName = conditionalType.firstLowercased
                 
                 let args = makeArgs {
@@ -391,7 +413,7 @@ private class StructGenerator {
                 }
                 return Decl.Syntax.SwitchCase(
                     enumName: conditionalType.firstLowercased,
-                    binds: [bindName],
+                    binds: [.named(bindName)],
                     returns: .functionCall(called: initializer, args: args)
                 )
             })

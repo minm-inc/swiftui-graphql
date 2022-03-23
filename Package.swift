@@ -1,4 +1,4 @@
-// swift-tools-version:5.5
+// swift-tools-version:5.6
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import PackageDescription
@@ -15,16 +15,21 @@ let package = Package(
             name: "SwiftUIGraphQL",
             targets: ["SwiftUIGraphQL"]),
         .executable(
-            name: "SwiftUIGraphQLCodegen",
+            name: "swiftui-graphql-codegen",
             targets: ["CodegenExecutable"]
-        )
+        ),
+        .executable(
+            name: "swiftui-graphql-download-schema",
+            targets: ["DownloadSchema"]
+        ),
+        .plugin(name: "SwiftUIGraphQLCodegenPlugin", targets: ["CodegenPlugin"]),
+        .plugin(name: "SwiftUIGraphQLDownloadSchemaPlugin", targets: ["DownloadSchemaPlugin"])
     ],
     dependencies: [
         // Dependencies declare other packages that this package depends on.
-        // .package(url: /* package url */, from: "1.0.0"),
-        .package(url: "https://github.com/apple/swift-argument-parser", branch: "async"),
-        .package(url: "https://github.com/minm-inc/GraphQL", revision: "f12c6ba"),
-        .package(name: "SwiftSyntax", url: "https://github.com/apple/swift-syntax.git", .exact("0.50500.0")),
+        .package(url: "https://github.com/apple/swift-argument-parser", from: "1.1.1"),
+        .package(url: "https://github.com/minm-inc/GraphQL", revision: "f1d3e38792f2072752c2f6aba757c1531b628690"),
+        .package(url: "https://github.com/apple/swift-syntax.git", from: "0.50500.0"),
         .package(
             url: "https://github.com/apple/swift-collections.git",
             .upToNextMajor(from: "1.0.0")
@@ -41,17 +46,30 @@ let package = Package(
             dependencies: ["SwiftUIGraphQL"]),
         .target(name: "Codegen", dependencies: [
             "SwiftUIGraphQL",
-            "SwiftSyntax",
-            .product(name: "SwiftSyntaxBuilder", package: "SwiftSyntax"),
+            .product(name: "SwiftSyntax", package: "swift-syntax"),
             .product(name: "ArgumentParser", package: "swift-argument-parser"),
             .product(name: "GraphQL", package: "GraphQL"),
-            .product(name: "Collections", package: "swift-collections")
+            .product(name: "OrderedCollections", package: "swift-collections")
         ]),
         .executableTarget(name: "CodegenExecutable", dependencies: ["Codegen"]),
         .testTarget(
             name: "CodegenTests",
             dependencies: ["Codegen"],
             resources: [Resource.copy("Cases")]
+        ),
+        .plugin(name: "CodegenPlugin", capability: .buildTool(), dependencies: ["CodegenExecutable"]),
+        .executableTarget(name: "DownloadSchema", dependencies: [
+            "SwiftUIGraphQL",
+            .product(name: "GraphQL", package: "GraphQL"),
+            .product(name: "ArgumentParser", package: "swift-argument-parser")
+        ]),
+        .plugin(
+            name: "DownloadSchemaPlugin",
+            capability: .command(
+                intent: .custom(verb: "download-schema", description: "Downloads the graphql schema"),
+                permissions: [.writeToPackageDirectory(reason: "To write the downloaded schema.json")]
+            ),
+            dependencies: ["DownloadSchema"]
         )
     ]
 )

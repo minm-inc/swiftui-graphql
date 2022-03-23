@@ -1,3 +1,4 @@
+import OrderedCollections
 /// Because SwiftSyntax's AST is quite hefty, we use a mini AST that more succintly represents what we're trying to generate
 enum Decl: Equatable {
     case `struct`(name: String, decls: [Decl], conforms: [String])
@@ -13,7 +14,8 @@ enum Decl: Equatable {
         name: String,
         type: DeclType,
         initializer: Expr? = nil,
-        accessor: LetAccessor = .let
+        accessor: LetAccessor = .let,
+        isStatic: Bool = false
     )
     enum LetAccessor: Equatable {
         case `let`
@@ -35,8 +37,15 @@ enum Decl: Equatable {
         /** A case statement like `case .enumName(let binds...)`*/
         struct SwitchCase: Equatable {
             let enumName: String
-            let binds: [String]
+            let binds: [Bind]
             let returns: Expr
+            
+            enum Bind: Equatable {
+                /// `_`
+                case discard
+                /// `let x`
+                case named(String)
+            }
         }
     }
     
@@ -56,12 +65,12 @@ enum Decl: Equatable {
     }
 }
 
-indirect enum Expr: Equatable, ExpressibleByStringLiteral {
+indirect enum Expr: Hashable, ExpressibleByStringLiteral {
     /** `Base.member` */
     case memberAccess(member: String, base: Expr? = nil)
     /** `called(args)` */
     case functionCall(called: Expr, args: [Arg] = [])
-    enum Arg: Equatable {
+    enum Arg: Hashable {
         case named(String, Expr)
         case unnamed(Expr)
     }
@@ -74,6 +83,10 @@ indirect enum Expr: Equatable, ExpressibleByStringLiteral {
     case `self`
     case stringLiteral(String)
     case boolLiteral(Bool)
+    case intLiteral(Int)
+    case floatLiteral(Double)
+    case array([Expr])
+    case dictionary(OrderedDictionary<Expr, Expr>)
     
     init(stringLiteral value: StringLiteralType) {
         self = .identifier(value)

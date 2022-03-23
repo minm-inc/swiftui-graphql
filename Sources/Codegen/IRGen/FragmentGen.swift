@@ -1,6 +1,6 @@
 import GraphQL
 import SwiftSyntax
-import Collections
+import OrderedCollections
 
 func generateProtocols(for fragment: FragmentDefinition, schema: GraphQLSchema, fragmentDefinitions: [FragmentDefinition]) -> [Decl] {
     let parentType = schema.getType(name: fragment.typeCondition.name.value)!
@@ -75,7 +75,7 @@ func generateProtocols(object: ResolvedField.Object, named: String, parentType: 
         // as well as the FooFragment<A,B> enum
         protocolName = "Contains\(named.firstUppercased)"
         
-        let underlyingType = makeConditionalFragmentType(named: named, conditional: object.conditional)
+        let underlyingType = makeConditionalFragmentType(named: named, possibleTypes: object.conditional.keys)
         protocolDecls.append(.let(name: "__\(named.firstLowercased)", type: underlyingType, accessor: .get()))
         
         topLevelDecls.append(
@@ -108,7 +108,7 @@ func generateProtocols(object: ResolvedField.Object, named: String, parentType: 
     
     var conforms: [String] = []
     if object.conditional.isEmpty {
-        conforms += object.fragProtos.keys.map { $0.protocolName }
+        conforms += object.fragProtos.keys.map(\.protocolName)
     }
     if isCacheable(type: parentType) {
         conforms.append("Cacheable")
@@ -117,10 +117,10 @@ func generateProtocols(object: ResolvedField.Object, named: String, parentType: 
     return [Decl.protocol(name: protocolName, conforms: conforms, whereClauses: whereClauses, decls: protocolDecls)] + topLevelDecls
 }
 
-func makeConditionalFragmentType(named: String, conditional: OrderedDictionary<String, ResolvedField.Object>) -> DeclType {
+func makeConditionalFragmentType(named: String, possibleTypes: OrderedSet<String>) -> DeclType {
     DeclType.named(
         named,
-        genericArguments: conditional.keys.map { .named($0) }
+        genericArguments: possibleTypes.map { .named($0) }
     )
 }
 

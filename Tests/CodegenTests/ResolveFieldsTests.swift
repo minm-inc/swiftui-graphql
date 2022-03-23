@@ -443,6 +443,65 @@ final class ResolveFieldTests: XCTestCase {
         XCTAssertEqual(cObj.unconditional.keys, ["y", "x"])
     }
     
+    func testMergeObjectsMergesUnconditionalsIntoConditionals() {
+        let nodeType = try! GraphQLInterfaceType(
+            name: "Node",
+            fields: [
+                "a": GraphQLField(type: GraphQLInt)
+            ]
+        )
+        let nodeImplType = try! GraphQLObjectType(
+            name: "NodeImpl",
+            fields: [
+                "a": GraphQLField(type: GraphQLInt),
+                "b": GraphQLField(type: GraphQLInt)
+            ],
+            interfaces: [nodeType]
+        )
+        let aType = try! GraphQLInterfaceType(
+            name: "A",
+            fields: [
+                "node": GraphQLField(type: nodeType)
+            ]
+        )
+        let schema = try! GraphQLSchema(
+            query: GraphQLObjectType(
+                name: "Query",
+                fields: ["a": GraphQLField(type: aType)]
+            ),
+            types: [nodeImplType]
+        )
+        
+        let (a, fragments) = getFirstQueryFieldAndFragments(source: """
+        {
+            a {
+                node { a }
+                ...F
+            }
+        }
+        fragment F on A {
+            node { ... G }
+        }
+        fragment G on NodeImpl {
+            b
+        }
+        """)
+        let object = resolveFields(
+            selectionSet: a.selectionSet!,
+            parentType: aType,
+            schema: schema,
+            fragments: fragments
+        )
+        
+        XCTAssertEqual(object.unconditional.keys, ["node"])
+        guard case .nested(let node) = object.unconditional["node"] else {
+            XCTFail()
+            return
+        }
+        XCTAssertEqual(node.unconditional.keys, ["a"])
+        XCTAssertEqual(node.conditional["NodeImpl"]!.unconditional.keys, ["b", "a"])
+    }
+    
     
 //    func testCommunalFieldsOnConditional() {
 //        let aType = try! GraphQLObjectType(

@@ -6,6 +6,7 @@
 //
 
 import SwiftSyntax
+import OrderedCollections
 
 extension Optional {
     func mapThunk<T>(_ f: @escaping (Wrapped) -> T) -> Optional<() -> T> {
@@ -22,13 +23,14 @@ class SwiftGen {
     
     func gen(decl: Decl) -> DeclSyntax {
         switch decl {
-        case let .let(name, type, initializer, accessor):
+        case let .let(name, type, initializer, accessor, isStatic):
             return DeclSyntax(
                 genVariableDecl(
                     identifier: name,
                     type: typeSyntax(for: type),
                     initializer: initializer.map(gen),
-                    accessor: accessor
+                    accessor: accessor,
+                    isStatic: isStatic
                 )
             ).withTrailingTrivia(.newlines(1))
         case let .struct(name, defs, conforms):
@@ -93,6 +95,14 @@ class SwiftGen {
             return genStringLiteral(string: string)
         case let .boolLiteral(bool):
             return ExprSyntax(genBoolLiteral(bool: bool))
+        case let .intLiteral(int):
+            return ExprSyntax(genIntLiteral(int: int))
+        case let .floatLiteral(float):
+            return ExprSyntax(genFloatLiteral(float: float))
+        case let .array(array):
+            return ExprSyntax(genArray(array: array))
+        case let .dictionary(dictionary):
+            return ExprSyntax(genDictionary(dictionary: dictionary))
         case .`self`:
             return ExprSyntax(IdentifierExprSyntax {
                 $0.useIdentifier(SyntaxFactory.makeSelfKeyword())
@@ -807,7 +817,7 @@ class SwiftGen {
                     $0.useCaseKeyword(
                         SyntaxFactory.makeCaseKeyword().withTrailingTrivia(.spaces(1))
                     )
-                    $0.addCaseItem(genSingleAssociatedValBindingCaseItemSyntax(caseName: caseName, bindings: [caseName]))
+                    $0.addCaseItem(genSingleAssociatedValBindingCaseItemSyntax(caseName: caseName, bindings: [.named(caseName)]))
                     $0.useColon(SyntaxFactory.makeColonToken().withTrailingTrivia(.newlines(1)))
                 }
             ).withLeadingTrivia(.spaces(indentationLevel)))
@@ -855,7 +865,7 @@ class SwiftGen {
     /// ```swift
     /// .caseName(let bindingName)
     /// ```
-    private func genSingleAssociatedValBindingCaseItemSyntax(caseName: String, bindings: [String]) -> CaseItemSyntax {
+    private func genSingleAssociatedValBindingCaseItemSyntax(caseName: String, bindings: [Decl.Syntax.SwitchCase.Bind]) -> CaseItemSyntax {
         CaseItemSyntax {
             $0.usePattern(PatternSyntax(
                 ExpressionPatternSyntax {
@@ -869,26 +879,33 @@ class SwiftGen {
                             ))
                             if !bindings.isEmpty {
                                 $0.useLeftParen(SyntaxFactory.makeLeftParenToken())
-                                for (i, bindingName) in bindings.enumerated() {
+                                for (i, binding) in bindings.enumerated() {
                                     $0.addArgument(TupleExprElementSyntax {
-                                        $0.useExpression(ExprSyntax(
-                                            UnresolvedPatternExprSyntax {
-                                                $0.usePattern(PatternSyntax(
-                                                    ValueBindingPatternSyntax {
-                                                        $0.useLetOrVarKeyword(
-                                                            SyntaxFactory
-                                                                .makeLetKeyword()
-                                                                .withTrailingTrivia(.spaces(1))
-                                                        )
-                                                        $0.useValuePattern(PatternSyntax(
-                                                            IdentifierPatternSyntax {
-                                                                $0.useIdentifier(SyntaxFactory.makeIdentifier(bindingName))
-                                                            }
-                                                        ))
-                                                    }
-                                                ))
-                                            }
-                                        ))
+                                        switch binding {
+                                        case .discard:
+                                            $0.useExpression(ExprSyntax(DiscardAssignmentExprSyntax {
+                                                $0.useWildcard(SyntaxFactory.makeWildcardKeyword())
+                                            }))
+                                        case .named(let name):
+                                            $0.useExpression(ExprSyntax(
+                                                UnresolvedPatternExprSyntax {
+                                                    $0.usePattern(PatternSyntax(
+                                                        ValueBindingPatternSyntax {
+                                                            $0.useLetOrVarKeyword(
+                                                                SyntaxFactory
+                                                                    .makeLetKeyword()
+                                                                    .withTrailingTrivia(.spaces(1))
+                                                            )
+                                                            $0.useValuePattern(PatternSyntax(
+                                                                IdentifierPatternSyntax {
+                                                                    $0.useIdentifier(SyntaxFactory.makeIdentifier(name))
+                                                                }
+                                                            ))
+                                                        }
+                                                    ))
+                                                }
+                                            ))
+                                        }
                                         if i < bindings.index(before: bindings.endIndex) {
                                             $0.useTrailingComma(SyntaxFactory.makeCommaToken().withTrailingTrivia(.spaces(1)))
                                         }
@@ -1072,7 +1089,7 @@ class SwiftGen {
         }.withTrailingTrivia(.newlines(1))
     }
     
-    private func genVariableDecl(identifier: String, type: TypeSyntax, initializer: ExprSyntax?, accessor: Decl.LetAccessor) -> DeclSyntax {
+    private func genVariableDecl(identifier: String, type: TypeSyntax, initializer: ExprSyntax?, accessor: Decl.LetAccessor, isStatic: Bool) -> DeclSyntax {
         DeclSyntax(
             VariableDeclSyntax {
                 let letOrVarKeyword: TokenSyntax
@@ -1085,6 +1102,11 @@ class SwiftGen {
                 $0.useLetOrVarKeyword(
                     letOrVarKeyword.withTrailingTrivia(.spaces(1))
                 )
+                if isStatic {
+                    $0.addModifier(DeclModifierSyntax {
+                        $0.useName(SyntaxFactory.makeStaticKeyword().withTrailingTrivia(.spaces(1)))
+                    })
+                }
                 $0.addBinding(PatternBindingSyntax {
                     $0.usePattern(PatternSyntax(IdentifierPatternSyntax {
                         $0.useIdentifier(SyntaxFactory.makeIdentifier(identifier))
@@ -1258,7 +1280,10 @@ class SwiftGen {
                         $0.useExpression(gen(expr: expr))
                     }
                     if i < args.index(before: args.endIndex) {
-                        $0.useTrailingComma(SyntaxFactory.makeCommaToken())
+                        $0.useTrailingComma(
+                            SyntaxFactory.makeCommaToken()
+                                .withTrailingTrivia(.spaces(1))
+                        )
                     }
                 })
             }
@@ -1289,6 +1314,70 @@ class SwiftGen {
                 bool ?
                 SyntaxFactory.makeTrueKeyword() :
                     SyntaxFactory.makeFalseKeyword()
+            )
+        }
+    }
+    
+    private func genIntLiteral(int: Int) -> IntegerLiteralExprSyntax {
+        SyntaxFactory.makeIntegerLiteralExpr(digits: SyntaxFactory.makeIntegerLiteral("\(int)"))
+    }
+    
+    private func genFloatLiteral(float: Double) -> FloatLiteralExprSyntax {
+        SyntaxFactory.makeFloatLiteralExpr(floatingDigits: SyntaxFactory.makeFloatingLiteral("\(float)"))
+    }
+    
+    private func genArray(array: [Expr]) -> ArrayExprSyntax {
+        ArrayExprSyntax { builder in
+            builder.useLeftSquare(
+                SyntaxFactory.makeLeftSquareBracketToken()
+            )
+            indent {
+                for (i, x) in array.enumerated() {
+                    builder.addElement(ArrayElementSyntax {
+                        $0.useExpression(gen(expr: x))
+                        if i < array.index(before: array.endIndex) {
+                            $0.useTrailingComma(
+                                SyntaxFactory.makeCommaToken()
+                                    .withTrailingTrivia(.spaces(1))
+                            )
+                        }
+                    }.withLeadingTrivia(.spaces(indentationLevel)))
+                }
+            }
+            builder.useRightSquare(
+                SyntaxFactory.makeRightSquareBracketToken()
+            )
+        }
+    }
+    
+    private func genDictionary(dictionary: OrderedDictionary<Expr, Expr>) -> DictionaryExprSyntax {
+        DictionaryExprSyntax { builder in
+            builder.useLeftSquare(
+                SyntaxFactory.makeLeftSquareBracketToken()
+            )
+            
+            if dictionary.isEmpty {
+                builder.useContent(Syntax(SyntaxFactory.makeColonToken()))
+            } else {
+                let keyVals = dictionary.map { ($0, $1) }
+                let elements = keyVals.enumerated().map { i, x in
+                    indent {
+                        DictionaryElementSyntax {
+                            $0.useKeyExpression(gen(expr: x.0))
+                            $0.useColon(SyntaxFactory.makeColonToken().withTrailingTrivia(.spaces(1)))
+                            $0.useValueExpression(gen(expr: x.1))
+                            if i < keyVals.index(before: keyVals.endIndex) {
+                                $0.useTrailingComma(
+                                    SyntaxFactory.makeCommaToken()
+                                )
+                            }
+                        }.withLeadingTrivia(.newlines(1).appending(.spaces(indentationLevel)))
+                    }
+                }
+                builder.useContent(Syntax(SyntaxFactory.makeDictionaryElementList(elements)))
+            }
+            builder.useRightSquare(
+                SyntaxFactory.makeRightSquareBracketToken()
             )
         }
     }
