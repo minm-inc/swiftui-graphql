@@ -40,7 +40,7 @@ struct Codegen: AsyncParsableCommand {
         let introspection: IntrospectionQuery
         
         if schema.host != nil {
-            introspection = try await makeRequest(queryRequest, endpoint: schema)
+            introspection = try await GraphQLClient(endpoint: schema).makeRequest(queryRequest)
         } else {
             let url = URL(fileURLWithPath: schema.absoluteString)
             introspection = try JSONDecoder().decode(IntrospectionQuery.self, from: Data(contentsOf: url))

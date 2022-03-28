@@ -11,18 +11,20 @@ import Combine
 public actor GraphQLClient: ObservableObject {
     var cache = Cache()
     
-    let apiUrl: URL
+    let endpoint: URL
     let headerCallback: () -> [String: String]
+    let urlSession: URLSession
     
-    public init(url: URL, withHeaders headerCallback: @escaping () -> [String: String]) {
-        self.apiUrl = url
+    public init(endpoint: URL, urlSession: URLSession = .shared, withHeaders headerCallback: @escaping () -> [String: String] = { [:]}) {
+        self.endpoint = endpoint
+        self.urlSession = urlSession
         self.headerCallback = headerCallback
     }
     
     func query(query: String, selections: [ResolvedSelection<String>], variables: [String: Value]?) async throws -> Value {
         let queryReq = QueryRequest(query: query, variables: variables)
         
-        let data = try await makeRequestRaw(queryReq, endpoint: apiUrl, headers: headerCallback())
+        let data = try await makeRequestRaw(queryReq)
         
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
@@ -51,8 +53,37 @@ public actor GraphQLClient: ObservableObject {
     // Note: try! all the encoding/decoding as these are programming errors
     public func query<T: Queryable>(variables: T.Variables) async throws -> T {
         let decodedData = try await query(query: T.query, selections: T.selections, variables: variablesToDict(variables))
-        
         return try! ValueDecoder().decode(T.self, from: decodedData)
+    }
+    
+    func makeRequestRaw(_ queryRequest: QueryRequest) async throws -> Data {
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        for (headerField, header) in headerCallback() {
+            request.setValue(header, forHTTPHeaderField: headerField)
+        }
+        request.httpBody = try! JSONEncoder().encode(queryRequest)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        
+        let (data, response) = try await urlSession.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            print(String(data: data, encoding: .utf8)!)
+            throw QueryError.invalid
+        }
+        return data
+    }
+
+    public func makeRequest<T: Decodable>(_ queryRequest: QueryRequest) async throws -> T {
+        let data = try await makeRequestRaw(queryRequest)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let graphqlResponse = try! decoder.decode(QueryResponse<T>.self, from: data)
+        guard let decodedData = graphqlResponse.data else {
+            throw QueryError.invalid
+        }
+        
+        return decodedData
     }
 }
 
@@ -78,36 +109,6 @@ public struct QueryRequest: Encodable {
 
 enum QueryError: Error {
     case invalid
-}
-
-func makeRequestRaw(_ queryRequest: QueryRequest, endpoint: URL, headers: [String: String] = [:]) async throws -> Data {
-    var request = URLRequest(url: endpoint)
-    request.httpMethod = "POST"
-    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    for (headerField, header) in headers {
-        request.setValue(header, forHTTPHeaderField: headerField)
-    }
-    request.httpBody = try! JSONEncoder().encode(queryRequest)
-    request.cachePolicy = .reloadIgnoringLocalCacheData
-    
-    let (data, response) = try await URLSession.shared.data(for: request)
-    guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-        print(String(data: data, encoding: .utf8)!)
-        throw QueryError.invalid
-    }
-    return data
-}
-
-public func makeRequest<T: Decodable>(_ queryRequest: QueryRequest, endpoint: URL) async throws -> T {
-    let data = try await makeRequestRaw(queryRequest, endpoint: endpoint)
-    let decoder = JSONDecoder()
-    decoder.dateDecodingStrategy = .iso8601
-    let graphqlResponse = try! decoder.decode(QueryResponse<T>.self, from: data)
-    guard let decodedData = graphqlResponse.data else {
-        throw QueryError.invalid
-    }
-    
-    return decodedData
 }
 
 
