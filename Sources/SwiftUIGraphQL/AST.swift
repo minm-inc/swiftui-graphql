@@ -222,6 +222,25 @@ extension String: Value1Param {
     public var variableString: String { self }
 }
 
+/// The key used for  objects in ``Value1``.
+///
+/// This is equivalent to a ``String``, but is wrapped in a type to prevent confusion with ``FieldName``:
+/// An ``ObjectKey`` is the key of the field as returned in the object, and can be affected by field aliases.
+public struct ObjectKey: Codable, Hashable, ExpressibleByStringLiteral {
+    private let key: String
+    public init(stringLiteral value: String) {
+        self.key = value
+    }
+    public init(from decoder: Decoder) throws {
+        try self.key = String(from: decoder)
+    }
+    public func encode(to encoder: Encoder) throws {
+        try key.encode(to: encoder)
+    }
+    public init(_ key: String) { self.key = key }
+    public var description: String { key }
+}
+
 public enum Value1<T>: Equatable, Hashable, QueryPrintable where T: Value1Param {
     case variable(T)
     case boolean(Bool)
@@ -230,7 +249,7 @@ public enum Value1<T>: Equatable, Hashable, QueryPrintable where T: Value1Param 
     case float(Double)
     case `enum`(String)
     case list([Value1<T>])
-    case object([String: Value1<T>])
+    case object([ObjectKey: Value1<T>])
     case null
     
     var printed: String {
@@ -246,13 +265,22 @@ public enum Value1<T>: Equatable, Hashable, QueryPrintable where T: Value1Param 
         case .list(let xs):
             return "[\(xs.map { $0.printed }.joined(separator: ", ") )]"
         case .object(let obj):
-            return "{" + obj.map { $0.key + ": " + $0.value.printed }.joined(separator: ",") + "}"
+            return "{" + obj.map { $0.key.description + ": " + $0.value.printed }.joined(separator: ",") + "}"
         case .null:
             return "null"
         case .`enum`(let x):
             return "\"" + x + "\""
         case .variable(let x):
             return "$\(x.variableString)"
+        }
+    }
+    
+    public subscript(_ key: ObjectKey) -> Value1? {
+        switch self {
+        case .object(let obj):
+            return obj[key]
+        default:
+            return nil
         }
     }
 }
@@ -299,7 +327,7 @@ extension Value1: Codable {
         } else if let arr = try? [Value1<T>].init(from: decoder) {
             self = .list(arr)
         } else {
-            self = .object(try [String: Value1<T>].init(from: decoder))
+            self = .object(try [ObjectKey: Value1<T>].init(from: decoder))
         }
     }
 }

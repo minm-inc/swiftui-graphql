@@ -8,12 +8,13 @@
 import Foundation
 import Combine
 
-public actor GraphQLClient: ObservableObject {
+public class GraphQLClient: ObservableObject {
     var cache = Cache()
     
     let endpoint: URL
     let headerCallback: () -> [String: String]
     let urlSession: URLSession
+    let scalarDecoder = FoundationScalarDecoder()
     
     public init(endpoint: URL, urlSession: URLSession = .shared, withHeaders headerCallback: @escaping () -> [String: String] = { [:]}) {
         self.endpoint = endpoint
@@ -21,7 +22,7 @@ public actor GraphQLClient: ObservableObject {
         self.headerCallback = headerCallback
     }
     
-    func query(query: String, selections: [ResolvedSelection<String>], variables: [String: Value]?) async throws -> Value {
+    func query(query: String, selection: ResolvedSelection<String>, variables: [ObjectKey: Value]?, cacheUpdater: Cache.Updater? = nil) async throws -> Value {
         let queryReq = QueryRequest(query: query, variables: variables)
         
         let data = try await makeRequestRaw(queryReq)
@@ -30,8 +31,8 @@ public actor GraphQLClient: ObservableObject {
         decoder.dateDecodingStrategy = .iso8601
         
         let graphqlResponse = try! decoder.decode(QueryResponse<Value>.self, from: data)
-        if let error = graphqlResponse.error {
-            throw QueryError.invalid
+        if let errors = graphqlResponse.error {
+            throw QueryError.errors(errors)
         }
         
         guard let decodedData = graphqlResponse.data else {
@@ -42,18 +43,17 @@ public actor GraphQLClient: ObservableObject {
             fatalError()
         }
         
-        let selections = substituteVariables(in: selections, variableDefs: variables ?? [:])
-        let cacheObject = cacheObject(from: decodedObj, selections: selections)
-        // cacheobject doesn't contain inLibrary???
-        await cache.mergeCache(incoming: cacheObject)
+        let selection = substituteVariables(in: selection, variableDefs: variables ?? [:])
+        let (cacheObj, _) = await cache.mergeCache(incoming: decodedObj, selection: selection)
+        await cacheUpdater?(cacheObj, cache)
         
         return decodedData
     }
     
     // Note: try! all the encoding/decoding as these are programming errors
     public func query<T: Queryable>(variables: T.Variables) async throws -> T {
-        let decodedData = try await query(query: T.query, selections: T.selections, variables: variablesToDict(variables))
-        return try! ValueDecoder().decode(T.self, from: decodedData)
+        let decodedData = try await query(query: T.query, selection: T.selection, variables: variablesToObject(variables))
+        return try! ValueDecoder(scalarDecoder: scalarDecoder).decode(T.self, from: decodedData)
     }
     
     func makeRequestRaw(_ queryRequest: QueryRequest) async throws -> Data {
@@ -99,22 +99,21 @@ public struct GraphQLError: Decodable {
 public struct QueryRequest: Encodable {
     let query: String
     let operationName: String?
-    let variables: [String: Value]?
-    public init(query: String, operationName: String? = nil, variables: [String: Value]? = nil) {
+    let variables: [ObjectKey: Value]?
+    public init(query: String, operationName: String? = nil, variables: [ObjectKey: Value]? = nil) {
         self.query = query
         self.operationName = operationName
         self.variables = variables
     }
 }
 
-enum QueryError: Error {
+public enum QueryError: Error {
+    case errors([GraphQLError])
     case invalid
 }
 
-
-
-func variablesToDict<Variables: Encodable>(_ variables: Variables) -> [String: Value]? {
-    let res: [String: Value]?
+func variablesToObject<Variables: Encodable>(_ variables: Variables) -> [ObjectKey: Value]? {
+    let res: [ObjectKey: Value]?
     let variableValue: Value = try! ValueEncoder().encode(variables)
     switch variableValue {
     case .object(let obj):
@@ -125,4 +124,25 @@ func variablesToDict<Variables: Encodable>(_ variables: Variables) -> [String: V
         fatalError("Invalid variables type")
     }
     return res
+}
+
+
+public class CacheTracked<Fragment: Cacheable>: ObservableObject {
+    @Published public private(set) var fragment: Fragment
+    private var cancellable: AnyCancellable? = nil
+    public init(fragment: Fragment, variableDefs: [ObjectKey: Value], client: GraphQLClient) {
+        self.fragment = fragment
+        cancellable = client.cache.publisher.sink { (changedKeys, store) in
+            let cacheKey = CacheKey(type: fragment.__typename, id: fragment.id)
+            let cacheObject = store[cacheKey]!
+            let selection = substituteVariables(in: Fragment.selection, variableDefs: variableDefs)
+            let value = value(from: .object(cacheObject), selection: selection, cacheStore: store)
+            self.fragment = try! ValueDecoder(scalarDecoder: client.scalarDecoder).decode(Fragment.self, from: value)
+        }
+    }
+    
+    /// Initializes a static fragment definition. Useful for in testing.
+    public init(fragment: Fragment) {
+        self.fragment = fragment
+    }
 }

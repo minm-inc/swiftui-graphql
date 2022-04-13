@@ -1,68 +1,75 @@
-public enum ResolvedSelection<Variables: Value1Param> {
-    case field(Field)
-    public struct Field {
-        /// This is the **resolved name**, i.e. the alias if it has one, falling back to the field name otherwise.
-        public let name: String
-        public let arguments: [String: Value1<Variables>]
-        public let type: `Type`
-        public let selections: [ResolvedSelection]
-        public init(name: String, arguments: [String: Value1<Variables>] = [:], type: `Type`, selections: [ResolvedSelection] = []) {
-            self.name = name
-            self.arguments = arguments
-            self.type = type
-            self.selections = selections
-        }
+public struct FieldName: Hashable, ExpressibleByStringLiteral {
+    public let name: String
+    public init(stringLiteral value: String) {
+        self.name = value
     }
-    /// A fragment whose selections are *only included on a type condition*.
-    ///
-    /// Plain old fragments get resovled into regular ``Field``s.
-    case fragment(typeCondition: String, selections: [ResolvedSelection])
+    public init(_ name: String) { self.name = name }
 }
 
-func findSelection<T>(name: String, in selections: [ResolvedSelection<T>]) -> ResolvedSelection<T>.Field? {
-    for selection in selections {
-        switch selection {
-        case .field(let field):
-            if field.name == name {
-                return field
-            } else {
-                continue
+public struct SelectionField<Arguments, Nested> {
+    /// This is the actual name of the field *as it appears on the type* – i.e. without the alias
+    public let name: FieldName
+    // This will be implementation dependent:
+    // At runtime we want a regular, unordered dictionary
+    public let arguments: Arguments
+    public let type: `Type`
+    public var nested: Nested?
+    public init(name: FieldName, arguments: Arguments, type: `Type`, nested: Nested?) {
+        self.name = name
+        self.arguments = arguments
+        self.type = type
+        self.nested = nested
+    }
+}
+
+/// Represents the fields that were selected for a particular object that was code generated.
+public struct ResolvedSelection<Variables: Value1Param> {
+    
+    public typealias Field = SelectionField<[String: Value1<Variables>], ResolvedSelection>
+    /// Map from the key of the field as it will appear in the result payload, to the field
+    public let fields: [ObjectKey: Field]
+    
+    public typealias TypeCondition = String
+    /// Fields that may be conditionally included on certain types
+    let conditional: [TypeCondition: [ObjectKey: Field]]
+    public init(fields: [ObjectKey: Field], conditional: [TypeCondition: [ObjectKey: Field]]) {
+        self.fields = fields
+        self.conditional = conditional
+    }
+}
+
+func findField<T>(key: ObjectKey, onType typename: String?, in selection: ResolvedSelection<T>) -> ResolvedSelection<T>.Field? {
+    if let typename = typename, let field = selection.conditional[typename]?[key] {
+        return field
+    } else {
+        return selection.fields[key]
+    }
+}
+
+func substituteVariables(in selection: ResolvedSelection<String>, variableDefs: [ObjectKey: Value]) -> ResolvedSelection<Never> {
+    ResolvedSelection(
+        fields: selection.fields.mapValues { substituteVariables(in: $0, variableDefs: variableDefs) },
+        conditional: selection.conditional.mapValues {
+            $0.mapValues {
+                substituteVariables(in: $0, variableDefs: variableDefs)
             }
-        case .fragment(_, let selections):
-            if let selection = findSelection(name: name, in: selections) {
-                return selection
-            } else {
-                continue
-            }
         }
-    }
-    return nil
+    )
 }
 
-
-func substituteVariables(in selections: [ResolvedSelection<String>], variableDefs: [String: Value]) -> [ResolvedSelection<Never>] {
-    selections.map { selection in
-        switch selection {
-        case let .field(field):
-            return .field(ResolvedSelection.Field(
-                name: field.name,
-                arguments: field.arguments.mapValues { substituteVariables(in: $0, variableDefs: variableDefs)},
-                type: field.type,
-                selections: substituteVariables(in: field.selections, variableDefs: variableDefs)
-            ))
-        case let .fragment(typeCondition, selections):
-            return .fragment(
-                typeCondition: typeCondition,
-                selections: substituteVariables(in: selections, variableDefs: variableDefs)
-            )
-        }
-    }
+private func substituteVariables(in field: ResolvedSelection<String>.Field, variableDefs: [ObjectKey: Value]) -> ResolvedSelection<Never>.Field {
+    ResolvedSelection.Field(
+        name: field.name,
+        arguments: field.arguments.mapValues { substituteVariables(in: $0, variableDefs: variableDefs)},
+        type: field.type,
+        nested: field.nested.map { substituteVariables(in: $0, variableDefs: variableDefs) }
+    )
 }
 
-private func substituteVariables(in value: NonConstValue, variableDefs: [String: Value]) -> Value {
+private func substituteVariables(in value: NonConstValue, variableDefs: [ObjectKey: Value]) -> Value {
     switch value {
     case let .variable(varName):
-        if let variable = variableDefs[varName] {
+        if let variable = variableDefs[ObjectKey(varName)] {
             return variable
         } else {
             return .null

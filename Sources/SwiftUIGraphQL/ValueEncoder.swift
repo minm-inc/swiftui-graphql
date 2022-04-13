@@ -28,7 +28,7 @@ fileprivate class ValueEncoderImpl<Const: Value1Param>: Encoder {
             var value: Value1<Const>? = nil
         }
         class ObjectRef {
-            var object: [String: ValueRef] = [:]
+            var object: [ObjectKey: ValueRef] = [:]
         }
         class ListRef {
             var list: [ValueRef] = []
@@ -60,7 +60,7 @@ fileprivate class ValueEncoderImpl<Const: Value1Param>: Encoder {
         
         let objRef: ValueRef.ObjectRef
 
-        var obj: [String: ValueRef] {
+        var obj: [ObjectKey: ValueRef] {
             get {
                 objRef.object
             }
@@ -379,4 +379,15 @@ fileprivate class ValueEncoderImpl<Const: Value1Param>: Encoder {
         
     }
     
+}
+
+fileprivate extension Dictionary where Key == ObjectKey {
+    subscript(_ key: String) -> Value? {
+        get {
+            self[ObjectKey(key)]
+        }
+        set(newValue) {
+            self[ObjectKey(key)] = newValue
+        }
+    }
 }

@@ -36,7 +36,7 @@ struct Codegen: AsyncParsableCommand {
     var output: String?
     
     func loadSchema() async throws -> GraphQLSchema {
-        let queryRequest = QueryRequest(query: getIntrospectionQuery())
+        let queryRequest = QueryRequest(query: getIntrospectionQuery(specifiedByURL: true))
         let introspection: IntrospectionQuery
         
         if schema.host != nil {

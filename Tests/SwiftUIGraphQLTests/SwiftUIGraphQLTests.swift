@@ -54,7 +54,7 @@ final class SwiftUIGraphQLTests: XCTestCase {
     }
     
     func testMergeCacheObjectsInList() async {
-        let incoming: UnnormalizedCacheObject = [
+        let incoming: UnCacheObject = [
             CacheField(name: "foo"): .object([
                 CacheField(name: "__typename"): .string("Foo"),
                 CacheField(name: "id"): .string("1"),
@@ -66,10 +66,10 @@ final class SwiftUIGraphQLTests: XCTestCase {
                 ])
             ])
         ]
-        let existingCache: [CacheKey: NormalizedCacheObject] = [
+        let existingCache: [CacheKey: CacheObject] = [
             CacheKey(type: "Foo", id: "1"): [:]
         ]
-        let expectedCache: [CacheKey: NormalizedCacheObject] = [
+        let expectedCache: [CacheKey: CacheObject] = [
             CacheKey(type: "Foo", id: "1"): [
                 CacheField(name: "__typename"): .string("Foo"),
                 CacheField(name: "id"): .string("1"),
@@ -109,7 +109,7 @@ final class SwiftUIGraphQLTests: XCTestCase {
                 ]))
             ]
         )
-        let existingCache: [CacheKey: NormalizedCacheObject] = [
+        let existingCache: [CacheKey: CacheObject] = [
             CacheKey(type: "Foo", id: "1"): [
                 CacheField(name: "bars", args: ["a": .boolean(true)]): .int(24)
             ]
@@ -144,7 +144,7 @@ final class SwiftUIGraphQLTests: XCTestCase {
                 ]))
             ]
         )
-        let existingCache: [CacheKey: NormalizedCacheObject] = [
+        let existingCache: [CacheKey: CacheObject] = [
             CacheKey(type: "Foo", id: "1"): [
                 CacheField(name: "bars", args: ["a": .boolean(true)]): .int(24)
             ]
@@ -159,7 +159,7 @@ final class SwiftUIGraphQLTests: XCTestCase {
     }
     
     func testUpdateQuerySwitchingTypes() {
-        let existing = UnnormalizedCacheValue.object([
+        let existing = UnCacheValue.object([
             CacheField(name: "__typename"): .string("Root"),
             CacheField(name: "id"): .string("1"),
             CacheField(name: "x"): .object([
@@ -168,7 +168,7 @@ final class SwiftUIGraphQLTests: XCTestCase {
                 CacheField(name: "foo"): .int(42)
             ])
         ])
-        let cache: [CacheKey: NormalizedCacheObject] = [
+        let cache: [CacheKey: CacheObject] = [
             CacheKey(type: "Root", id: "1"): [
                 CacheField(name: "__typename"): .string("Root"),
                 CacheField(name: "id"): .string("1"),
@@ -199,7 +199,7 @@ final class SwiftUIGraphQLTests: XCTestCase {
             changedKeys: [CacheKey(type: "Root", id: "1")],
             cache: cache
         )
-        let expected = UnnormalizedCacheValue.object([
+        let expected = UnCacheValue.object([
             CacheField(name: "__typename"): .string("Root"),
             CacheField(name: "id"): .string("1"),
             CacheField(name: "x"): .object([
@@ -247,7 +247,7 @@ final class SwiftUIGraphQLTests: XCTestCase {
             ])
         ]
         let cacheObj = cacheObject(from: obj, selections: [selection])
-        let expected: UnnormalizedCacheObject =  [
+        let expected: UnCacheObject =  [
             CacheField(name: "addToLibrary", args: ["itemId": .string("album:13")]): .object([
                 CacheField(name: "edge"): .object([
                     CacheField(name: "node"): .object([

@@ -2,7 +2,6 @@
  This contains definitions that are required by codegened code
  */
 
-
 public struct NoVariables: Encodable, Equatable {
     public init() {}
     public func encode(to encoder: Encoder) throws {
@@ -11,9 +10,9 @@ public struct NoVariables: Encodable, Equatable {
     }
 }
 
-public protocol Cacheable: Codable, Identifiable {
+public protocol Cacheable: Codable, Selectable, Identifiable {
     var __typename: String { get }
-    var id: String { get }
+    var id: SwiftUIGraphQL.ID { get }
 }
 
 public enum TypenameCodingKeys: CodingKey {
@@ -22,8 +21,11 @@ public enum TypenameCodingKeys: CodingKey {
 
 public typealias ID = String
 
-public protocol Queryable: Codable {
+public protocol Selectable {
+    static var selection: ResolvedSelection<String> { get }
+}
+
+public protocol Queryable: Codable, Selectable {
     static var query: String { get }
-    static var selections: [ResolvedSelection<String>] { get }
     associatedtype Variables = NoVariables where Variables: Encodable & Equatable
 }

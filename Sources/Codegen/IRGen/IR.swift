@@ -12,7 +12,7 @@ enum Decl: Equatable {
     )
     case `let`(
         name: String,
-        type: DeclType,
+        type: DeclType? = nil,
         initializer: Expr? = nil,
         accessor: LetAccessor = .let,
         isStatic: Bool = false
@@ -25,28 +25,38 @@ enum Decl: Equatable {
     case staticLetString(name: String, literal: String)
     case `protocol`(name: String, conforms: [String], whereClauses: [WhereClause], decls: [Decl])
     case `associatedtype`(name: String, inherits: String)
-    case `func`(name: String, returnType: DeclType, body: Syntax?, access: FuncAccess? = nil)
+    case `func`(name: String, parameters: [Parameter] = [], `throws`: Throws? = nil, returnType: DeclType? = nil, body: [Syntax]?, access: FuncAccess? = nil)
     
     enum FuncAccess: Equatable {
         case `fileprivate`
     }
     
-    enum Syntax: Equatable {
-        case expr(Expr)
-        case returnSwitch(expr: Expr, cases: [SwitchCase])
-        /** A case statement like `case .enumName(let binds...)`*/
-        struct SwitchCase: Equatable {
-            let enumName: String
-            let binds: [Bind]
-            let returns: Expr
-            
-            enum Bind: Equatable {
-                /// `_`
-                case discard
-                /// `let x`
-                case named(String)
-            }
+    case `init`(parameters: [Parameter] = [], `throws`: Throws? = nil, body: [Syntax]?)
+    struct Parameter: Equatable {
+        let firstName: String
+        let secondName: String?
+        let type: DeclType
+        init(_ firstName: String, _ secondName: String? = nil, type: DeclType) {
+            self.firstName = firstName
+            self.secondName = secondName
+            self.type = type
         }
+    }
+    
+    enum Throws: Equatable {
+        case `throws`, `rethrows`
+    }
+    
+    indirect enum Syntax: Equatable {
+        case expr(Expr)
+        case decl(Decl)
+        case `switch`(Expr, cases: [Case])
+        enum Case: Equatable {
+            case `case`(Expr, [Syntax])
+            case `default`([Syntax])
+        }
+        case `return`(Expr)
+        case assignment(lhs: Expr, rhs: Expr)
     }
     
     struct WhereClause: Equatable {
@@ -85,11 +95,33 @@ indirect enum Expr: Hashable, ExpressibleByStringLiteral {
     case boolLiteral(Bool)
     case intLiteral(Int)
     case floatLiteral(Double)
+    case nilLiteral
     case array([Expr])
     case dictionary(OrderedDictionary<Expr, Expr>)
+    case `try`(Expr)
+    /// `_`
+    case discardPattern
+    /// `let foo`
+    case letPattern(String)
     
     init(stringLiteral value: StringLiteralType) {
         self = .identifier(value)
+    }
+    
+    func access(_ member: String) -> Expr {
+        .memberAccess(member: member, base: self)
+    }
+    
+    func call(_ args: Arg...) -> Expr {
+        call(args)
+    }
+    
+    func call(_ args: [Arg]) -> Expr {
+        .functionCall(called: self, args: args)
+    }
+    
+    static func dot(_ member: String) -> Expr {
+        .memberAccess(member: member)
     }
 }
 

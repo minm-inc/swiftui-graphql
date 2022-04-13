@@ -1,4 +1,6 @@
 import GraphQL
+import OrderedCollections
+import SwiftUIGraphQL
 
 func underlyingType(_ type: GraphQLType) -> GraphQLNamedType {
     if let type = type as? GraphQLList {
@@ -23,7 +25,7 @@ func replaceUnderlyingType(_ type: GraphQLType, with newType: GraphQLType) -> Gr
     }
 }
 
-func operationRootType(for type: OperationType, schema: GraphQLSchema) -> GraphQLObjectType {
+func operationRootType(for type: GraphQL.OperationType, schema: GraphQLSchema) -> GraphQLObjectType {
     switch type {
     case .query:
         return schema.queryType
@@ -38,4 +40,51 @@ func operationRootType(for type: OperationType, schema: GraphQLSchema) -> GraphQ
         }
         return subscriptionType
     }
+}
+
+
+
+/// The base protocol conformances that an object with the given set of fields will conform to
+extension SwiftUIGraphQL.`Type` {
+    var underlyingName: String {
+        switch self {
+        case .nonNull(let type): return type.underlyingName
+        case .list(let type): return type.underlyingName
+        case .named(let name): return name
+        }
+    }
+    
+    func replacingUnderlyingType(with newTypeName: String) -> SwiftUIGraphQL.`Type` {
+        switch self {
+        case .named:
+            return .named(newTypeName)
+        case .list(let type):
+            return .list(type.replacingUnderlyingType(with: newTypeName))
+        case .nonNull(let type):
+            return .nonNull(type.replacingUnderlyingType(with: newTypeName))
+        }
+    }
+}
+
+extension SwiftUIGraphQL.NonNullType {
+    var underlyingName: String {
+        switch self {
+        case .named(let name): return name
+        case .nonNull(let type): return type.underlyingName
+        }
+    }
+    
+    func replacingUnderlyingType(with newTypeName: String) -> SwiftUIGraphQL.NonNullType {
+        switch self {
+        case .named:
+            return .named(newTypeName)
+        case .nonNull(let type):
+            return .nonNull(type.replacingUnderlyingType(with: newTypeName))
+        }
+    }
+}
+
+extension String {
+    var firstUppercased: String { prefix(1).uppercased() + dropFirst() }
+    var firstLowercased: String { prefix(1).lowercased() + dropFirst() }
 }

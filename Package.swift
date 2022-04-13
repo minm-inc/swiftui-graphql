@@ -28,7 +28,8 @@ let package = Package(
     dependencies: [
         // Dependencies declare other packages that this package depends on.
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.1.1"),
-        .package(url: "https://github.com/minm-inc/GraphQL", revision: "f1d3e38792f2072752c2f6aba757c1531b628690"),
+//        .package(url: "https://github.com/minm-inc/GraphQL", revision: "f1d3e38792f2072752c2f6aba757c1531b628690"),
+        .package(path: "~/Source/graphql-swift"),
         .package(url: "https://github.com/apple/swift-syntax.git", from: "0.50500.0"),
         .package(
             url: "https://github.com/apple/swift-collections.git",
@@ -48,7 +49,7 @@ let package = Package(
             "SwiftUIGraphQL",
             .product(name: "SwiftSyntax", package: "swift-syntax"),
             .product(name: "ArgumentParser", package: "swift-argument-parser"),
-            .product(name: "GraphQL", package: "GraphQL"),
+            .product(name: "GraphQL", package: "graphql-swift"),
             .product(name: "OrderedCollections", package: "swift-collections")
         ]),
         .executableTarget(name: "CodegenExecutable", dependencies: ["Codegen"]),
@@ -60,7 +61,7 @@ let package = Package(
         .plugin(name: "CodegenPlugin", capability: .buildTool(), dependencies: ["CodegenExecutable"]),
         .executableTarget(name: "DownloadSchema", dependencies: [
             "SwiftUIGraphQL",
-            .product(name: "GraphQL", package: "GraphQL"),
+            .product(name: "GraphQL", package: "graphql-swift"),
             .product(name: "ArgumentParser", package: "swift-argument-parser")
         ]),
         .plugin(

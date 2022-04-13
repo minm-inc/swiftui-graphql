@@ -1,36 +1,50 @@
 import OrderedCollections
 import SwiftUIGraphQL
-func gen(resolvedSelections: [ResolvedSelection<String>]) -> Expr {
-    return .array(
-        resolvedSelections.map { selection in
-            switch selection {
-            case .field(let field):
-                let fieldExpr = Expr.functionCall(
-                    called: .memberAccess(member: "init"),
-                    args: [
-                        .named("name", .stringLiteral(field.name)),
-                        .named("arguments", .dictionary(
-                            field.arguments.reduce(into: [:]) {
-                                $0[Expr.stringLiteral($1.key)] = genValueExpr(value: $1.value)
-                            }
-                        )),
-                        .named("type", genTypeExpr(type: field.type)),
-                        .named("selections", gen(resolvedSelections: field.selections))
-                    ]
-                )
-                return .functionCall(
-                    called: .memberAccess(member: "field"),
-                    args: [.unnamed(fieldExpr)]
-                )
-            case let .fragment(typeCondition, selections):
-                return .functionCall(
-                    called: .memberAccess(member: "fragment"),
-                    args: [
-                        .named("typeCondition", .stringLiteral(typeCondition)),
-                        .named("selections", gen(resolvedSelections: selections))
-                    ]
-                )
+
+func genResolvedSelectionDecl(fields: OrderedDictionary<String, MergedSelection.Field>, cases: OrderedDictionary<String, MergedSelection>) -> Decl {
+    .`let`(
+        name: "selection",
+        type: .named("ResolvedSelection", genericArguments: [.named("String")]),
+        initializer: Expr.functionCall(
+            called: .identifier("ResolvedSelection"),
+            args: [
+                .named("fields", gen(dictForFields: fields)),
+                .named("conditional", .dictionary(
+                    cases.reduce(into: [:]) { acc, x in
+                        acc[.stringLiteral(x.key)] = .identifier(x.key.firstUppercased)
+                            .access("selection")
+                            .access("fields")
+                    }
+                ))
+            ]
+        ),
+        isStatic: true
+    )
+}
+
+private func gen(dictForFields fields: OrderedDictionary<String, MergedSelection.Field>) -> Expr {
+    .dictionary(
+        fields.reduce(into: [:]) { acc, x in
+            let (key, field) = x
+            let nestedExpr: Expr
+            if field.nested != nil {
+                nestedExpr = .identifier(key.firstUppercased).access("selection")
+            } else {
+                nestedExpr = .nilLiteral
             }
+            acc[.stringLiteral(key)] = .functionCall(
+                called: .memberAccess(member: "init"),
+                args: [
+                    .named("name", .stringLiteral(field.name.name)),
+                    .named("arguments", .dictionary(
+                        field.arguments.reduce(into: [:]) {
+                            $0[Expr.stringLiteral($1.key)] = genValueExpr(value: $1.value)
+                        }
+                    )),
+                    .named("type", genTypeExpr(type: field.type)),
+                    .named("nested", nestedExpr)
+                ]
+            )
         }
     )
 }
