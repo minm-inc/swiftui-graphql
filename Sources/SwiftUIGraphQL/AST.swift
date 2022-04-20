@@ -226,19 +226,27 @@ extension String: Value1Param {
 ///
 /// This is equivalent to a ``String``, but is wrapped in a type to prevent confusion with ``FieldName``:
 /// An ``ObjectKey`` is the key of the field as returned in the object, and can be affected by field aliases.
-public struct ObjectKey: Codable, Hashable, ExpressibleByStringLiteral {
+public struct ObjectKey: Hashable, ExpressibleByStringLiteral, CodingKey {
     private let key: String
     public init(stringLiteral value: String) {
         self.key = value
     }
-    public init(from decoder: Decoder) throws {
-        try self.key = String(from: decoder)
+    
+    public var stringValue: String { key }
+    public var intValue: Int? { nil }
+    public init?(stringValue: String) {
+        self.key = stringValue
     }
-    public func encode(to encoder: Encoder) throws {
-        try key.encode(to: encoder)
+    public init?(intValue: Int) {
+        return nil
     }
+    
     public init(_ key: String) { self.key = key }
     public var description: String { key }
+    
+    static func convert<T>(object: [ObjectKey: Value1<T>]) -> [String: Value1<T>] {
+        object.reduce(into: [:]) { $0[$1.key.key] = $1.value }
+    }
 }
 
 public enum Value1<T>: Equatable, Hashable, QueryPrintable where T: Value1Param {
@@ -303,7 +311,11 @@ extension Value1: Codable {
         case .list(let xs):
             try xs.encode(to: encoder)
         case .object(let obj):
-            try obj.encode(to: encoder)
+            var container = encoder.container(keyedBy: ObjectKey.self)
+            for (key, val) in obj {
+                try container.encode(val, forKey: key)
+            }
+//            try obj.encode(to: encoder)
         case .variable(let x):
             try x.encode(to: encoder)
         case .`enum`(let x):
@@ -327,7 +339,13 @@ extension Value1: Codable {
         } else if let arr = try? [Value1<T>].init(from: decoder) {
             self = .list(arr)
         } else {
-            self = .object(try [ObjectKey: Value1<T>].init(from: decoder))
+            let container = try decoder.container(keyedBy: ObjectKey.self)
+            var res: [ObjectKey: Value1<T>] = [:]
+            for key in container.allKeys {
+                res[key] = try container.decode(Value1<T>.self, forKey: key)
+            }
+            self = .object(res)
+//            self = .object(try [ObjectKey: Value1<T>].init(from: decoder))
         }
     }
 }

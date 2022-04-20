@@ -270,8 +270,7 @@ private class ObjectGenerator {
                             .identifier("decoder").access("container").call(
                                 .named("keyedBy", .identifier("TypenameCodingKeys").access("self"))
                             )
-                        ),
-                        accessor: .var
+                        )
                     )
                 ),
                 .decl(

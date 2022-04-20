@@ -22,7 +22,7 @@ public class GraphQLClient: ObservableObject {
         self.headerCallback = headerCallback
     }
     
-    func query(query: String, selection: ResolvedSelection<String>, variables: [ObjectKey: Value]?, cacheUpdater: Cache.Updater? = nil) async throws -> Value {
+    func query(query: String, selection: ResolvedSelection<String>, variables: [String: Value]?, cacheUpdater: Cache.Updater? = nil) async throws -> Value {
         let queryReq = QueryRequest(query: query, variables: variables)
         
         let data = try await makeRequestRaw(queryReq)
@@ -44,8 +44,7 @@ public class GraphQLClient: ObservableObject {
         }
         
         let selection = substituteVariables(in: selection, variableDefs: variables ?? [:])
-        let (cacheObj, _) = await cache.mergeCache(incoming: decodedObj, selection: selection)
-        await cacheUpdater?(cacheObj, cache)
+        await cache.mergeCache(incoming: decodedObj, selection: selection, updater: cacheUpdater)
         
         return decodedData
     }
@@ -99,8 +98,8 @@ public struct GraphQLError: Decodable {
 public struct QueryRequest: Encodable {
     let query: String
     let operationName: String?
-    let variables: [ObjectKey: Value]?
-    public init(query: String, operationName: String? = nil, variables: [ObjectKey: Value]? = nil) {
+    let variables: [String: Value]?
+    public init(query: String, operationName: String? = nil, variables: [String: Value]? = nil) {
         self.query = query
         self.operationName = operationName
         self.variables = variables
@@ -112,12 +111,12 @@ public enum QueryError: Error {
     case invalid
 }
 
-func variablesToObject<Variables: Encodable>(_ variables: Variables) -> [ObjectKey: Value]? {
-    let res: [ObjectKey: Value]?
+func variablesToObject<Variables: Encodable>(_ variables: Variables) -> [String: Value]? {
+    let res: [String: Value]?
     let variableValue: Value = try! ValueEncoder().encode(variables)
     switch variableValue {
     case .object(let obj):
-        res = obj
+        res = ObjectKey.convert(object: obj)
     case .null:
         res = nil
     default:
@@ -130,9 +129,9 @@ func variablesToObject<Variables: Encodable>(_ variables: Variables) -> [ObjectK
 public class CacheTracked<Fragment: Cacheable>: ObservableObject {
     @Published public private(set) var fragment: Fragment
     private var cancellable: AnyCancellable? = nil
-    public init(fragment: Fragment, variableDefs: [ObjectKey: Value], client: GraphQLClient) {
+    public init(fragment: Fragment, variableDefs: [String: Value], client: GraphQLClient) {
         self.fragment = fragment
-        cancellable = client.cache.publisher.sink { (changedKeys, store) in
+        cancellable = client.cache.publisher.receive(on: RunLoop.main).sink { (changedKeys, store) in
             let cacheKey = CacheKey(type: fragment.__typename, id: fragment.id)
             let cacheObject = store[cacheKey]!
             let selection = substituteVariables(in: Fragment.selection, variableDefs: variableDefs)

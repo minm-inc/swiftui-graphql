@@ -379,7 +379,7 @@ private func decodeScalarWrappingError<ScalarDec: ScalarDecoder, T>(ofType type:
     } catch {
         throw DecodingError.typeMismatch(type, .init(
             codingPath: codingPath,
-            debugDescription: "Error ocurred whilst decoding a scalar type",
+            debugDescription: "Error ocurred whilst decoding a scalar type of type \(type): \(value)",
             underlyingError: error
         ))
     }

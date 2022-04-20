@@ -10,7 +10,7 @@ public actor Cache {
     }
 
     @discardableResult
-    func mergeCache(incoming: [ObjectKey: Value], selection: ResolvedSelection<Never>) -> (CacheObject, [CacheKey: CacheObject]) {
+    func mergeCache(incoming: [ObjectKey: Value], selection: ResolvedSelection<Never>, updater: Updater?) async -> (CacheObject, [CacheKey: CacheObject]) {
         var changedObjs: [CacheKey: CacheObject] = [:]
         
         func normalize(object: [ObjectKey: Value], fields: [ObjectKey: ResolvedSelection<Never>.Field]) -> CacheObject {
@@ -76,6 +76,7 @@ public actor Cache {
         guard case .object(let res) = go(.object(incoming), selection: selection) else {
             fatalError()
         }
+        await updater?(res, self)
         publisher.send((Set(changedObjs.keys), store))
         return (res, changedObjs)
     }
@@ -138,7 +139,6 @@ public actor Cache {
             fatalError("Impossible")
         }
         store[key] = obj
-        publisher.send(([key], store))
     }
 
 }

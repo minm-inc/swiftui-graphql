@@ -39,8 +39,6 @@ public class Operation<Response: Queryable>: ObservableObject {
                     guard let response = self.response else {
                         return
                     }
-                    print("cache keys changed:")
-                    print(changedKeys)
                     let selection = substituteVariables(in: Response.selection, variableDefs: variablesToObject(self.variables) ?? [:])
                     self.response = update(value: response, selection: selection, changedKeys: changedKeys, cacheStore: cacheStore)
                 }
@@ -113,7 +111,7 @@ public class Operation<Response: Queryable>: ObservableObject {
         case .list(let objs):
             return .list(objs.map { update(value: $0, selection: selection, changedKeys: changedKeys, cacheStore: cacheStore) })
         default:
-            fatalError()
+            return val
         }
     }
 }

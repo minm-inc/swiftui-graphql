@@ -46,7 +46,7 @@ func findField<T>(key: ObjectKey, onType typename: String?, in selection: Resolv
     }
 }
 
-func substituteVariables(in selection: ResolvedSelection<String>, variableDefs: [ObjectKey: Value]) -> ResolvedSelection<Never> {
+func substituteVariables(in selection: ResolvedSelection<String>, variableDefs: [String: Value]) -> ResolvedSelection<Never> {
     ResolvedSelection(
         fields: selection.fields.mapValues { substituteVariables(in: $0, variableDefs: variableDefs) },
         conditional: selection.conditional.mapValues {
@@ -57,7 +57,7 @@ func substituteVariables(in selection: ResolvedSelection<String>, variableDefs: 
     )
 }
 
-private func substituteVariables(in field: ResolvedSelection<String>.Field, variableDefs: [ObjectKey: Value]) -> ResolvedSelection<Never>.Field {
+private func substituteVariables(in field: ResolvedSelection<String>.Field, variableDefs: [String: Value]) -> ResolvedSelection<Never>.Field {
     ResolvedSelection.Field(
         name: field.name,
         arguments: field.arguments.mapValues { substituteVariables(in: $0, variableDefs: variableDefs)},
@@ -66,10 +66,10 @@ private func substituteVariables(in field: ResolvedSelection<String>.Field, vari
     )
 }
 
-private func substituteVariables(in value: NonConstValue, variableDefs: [ObjectKey: Value]) -> Value {
+private func substituteVariables(in value: NonConstValue, variableDefs: [String: Value]) -> Value {
     switch value {
     case let .variable(varName):
-        if let variable = variableDefs[ObjectKey(varName)] {
+        if let variable = variableDefs[varName] {
             return variable
         } else {
             return .null
