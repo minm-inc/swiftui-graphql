@@ -97,7 +97,9 @@ private func genTypeName(forScalar type: GraphQLScalarType) -> String {
     switch type.name {
     case "Boolean":
         return "Bool"
-    case "Int", "Float", "String", "ID":
+    case "Float":
+        return "Double"
+    case "Int", "String", "ID":
         return type.name
     default:
         if let specifiedByURL = type.specifiedByURL,
