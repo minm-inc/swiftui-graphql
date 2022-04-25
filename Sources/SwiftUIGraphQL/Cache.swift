@@ -56,7 +56,6 @@ public actor Cache {
                 } else {
                     // New addition to the cache
                     store[cacheKey] = normalizedObj
-                    changedObjs[cacheKey] = store[cacheKey]
                 }
                 return .reference(cacheKey)
             case let .string(x):
