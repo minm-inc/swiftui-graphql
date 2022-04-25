@@ -38,6 +38,11 @@ public struct ResolvedSelection<Variables: Value1Param> {
     }
 }
 
+public extension ResolvedSelection where Variables == String {
+    /// A selection that contains nothing. You'd never see this in the wild but it's useful for making test structs that conform to fragments
+    static let empty = ResolvedSelection<String>(fields: [:], conditional: [:])
+}
+
 func findField<T>(key: ObjectKey, onType typename: String?, in selection: ResolvedSelection<T>) -> ResolvedSelection<T>.Field? {
     if let typename = typename, let field = selection.conditional[typename]?[key] {
         return field
