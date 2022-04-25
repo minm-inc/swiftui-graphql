@@ -31,7 +31,7 @@ public class GraphQLClient: ObservableObject {
         decoder.dateDecodingStrategy = .iso8601
         
         let graphqlResponse = try! decoder.decode(QueryResponse<Value>.self, from: data)
-        if let errors = graphqlResponse.error {
+        if let errors = graphqlResponse.errors {
             throw QueryError.errors(errors)
         }
         
@@ -88,7 +88,7 @@ public class GraphQLClient: ObservableObject {
 
 public struct QueryResponse<T: Decodable>: Decodable {
     let data: T?
-    let error: [GraphQLError]?
+    let errors: [GraphQLError]?
 }
 
 public struct GraphQLError: Decodable {
