@@ -8,16 +8,6 @@
 import SwiftSyntax
 import OrderedCollections
 
-extension Optional {
-    func mapThunk<T>(_ f: @escaping (Wrapped) -> T) -> Optional<() -> T> {
-        if let x = self {
-            return { f(x) }
-        } else {
-            return nil
-        }
-    }
-}
-
 class SwiftGen {
     private var indentationLevel = 0
     
@@ -239,26 +229,6 @@ class SwiftGen {
                             $0.useDecl(gen(decl: def))
                         }.withTrailingTrivia(.newlines(1)))
                     }
-//
-//                    if (conforms.contains("Codable")) {
-//                        builder.addMember(MemberDeclListItemSyntax {
-//                            $0.useDecl(DeclSyntax(
-//                                genEnumDecoderInit(
-//                                    cases: cases,
-//                                    enumName: name,
-//                                    defaultCase: defaultCase
-//                                )
-//                            ))
-//                        })
-//
-//                        builder.addMember(MemberDeclListItemSyntax {
-//                            $0.useDecl(DeclSyntax(
-//                                genEnumEncodeFunc(
-//                                    cases: allCases
-//                                )
-//                            ))
-//                        })
-//                    }
                 }
             })
         }
@@ -544,33 +514,6 @@ class SwiftGen {
             }.withLeadingTrivia(.spaces(indentationLevel))
         )
     }
-    
-//    private func genReturnEnumMemberSwitchCase(`case`: Decl.Syntax.SwitchCase) -> SwitchCaseSyntax {
-//        SwitchCaseSyntax { builder in
-//            builder.useLabel(Syntax(
-//                SwitchCaseLabelSyntax {
-//                    $0.useCaseKeyword(
-//                        SyntaxFactory.makeCaseKeyword().withTrailingTrivia(.spaces(1))
-//                    )
-//                    $0.addCaseItem(genSingleAssociatedValBindingCaseItemSyntax(caseName: `case`.enumName, bindings: `case`.binds))
-//                    $0.useColon(SyntaxFactory.makeColonToken().withTrailingTrivia(.newlines(1)))
-//                }
-//            ).withLeadingTrivia(.spaces(indentationLevel)))
-//            indent {
-//                builder.addStatement(CodeBlockItemSyntax {
-//                    $0.useItem(Syntax(
-//                        ReturnStmtSyntax {
-//                            $0.useReturnKeyword(SyntaxFactory.makeReturnKeyword(
-//                                leadingTrivia: .spaces(indentationLevel),
-//                                trailingTrivia: .spaces(1)
-//                            ))
-//                            $0.useExpression(gen(expr: `case`.returns))
-//                        }
-//                    ))
-//                })
-//            }
-//        }
-//    }
     
     private func genSwitch(expr: ExprSyntax, cases: [SwitchCaseSyntax]) -> SwitchStmtSyntax {
         SwitchStmtSyntax {
@@ -945,4 +888,14 @@ func genStringLiteral(string: String, multiline: Bool = false) -> ExprSyntax {
             ))
         }
    )
+}
+
+fileprivate extension Optional {
+    func mapThunk<T>(_ f: @escaping (Wrapped) -> T) -> Optional<() -> T> {
+        if let x = self {
+            return { f(x) }
+        } else {
+            return nil
+        }
+    }
 }
