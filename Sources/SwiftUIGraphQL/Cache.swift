@@ -277,6 +277,25 @@ public struct NameAndArgumentsKey: ExpressibleByStringLiteral, Hashable {
 
 public typealias CacheObject = [NameAndArgumentsKey: CacheValue]
 
+public func lookup(_ names: FieldName..., ignoringArgumentsIn object: CacheObject) -> CacheValue? {
+    lookup(names: names, ignoringArgumentsIn: object)
+}
+private func lookup<T: RandomAccessCollection>(names: T, ignoringArgumentsIn object: CacheObject) -> CacheValue? where T.Element == FieldName {
+    if let name = names.first {
+        if let child = object.first(where: { $0.key.name == name })?.value {
+            if case .object(let childObject) = child {
+                return lookup(names: names.dropFirst(), ignoringArgumentsIn: childObject)
+            } else {
+                return child
+            }
+        } else {
+            return nil
+        }
+    } else {
+        return .object(object)
+    }
+}
+
 public func cacheKey(from object: [ObjectKey: Value], selection: ResolvedSelection<Never>) -> CacheKey? {
     guard case .string(let typename) = extract(field: "__typename", from: object, selection: selection),
           case .string(let id) = extract(field: "id", from: object, selection: selection) else {
