@@ -123,7 +123,7 @@ private class ObjectGenerator {
         
         decls.append(genEnumDecoderInit(cases: cases.keys))
         decls.append(genEnumEncodeFunc(cases: cases.keys))
-        // let selection = ResolvedSelection(...)
+        // This is the `let selection = ResolvedSelection(...)` bit
         decls.append(genResolvedSelectionDecl(fields: fields, cases: cases))
         
         return .enum(

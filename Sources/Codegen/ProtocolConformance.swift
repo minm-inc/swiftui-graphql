@@ -81,16 +81,17 @@ class ProtocolConformance {
     
     private static let cacheable = ProtocolConformance(
         name: "Cacheable",
-        inherits: [codable]
+        inherits: [codable, hashable]
     )
     private static let codable = ProtocolConformance(name: "Codable")
+    private static let hashable = ProtocolConformance(name: "Hashable")
     
     /// The base protocol conformances that an object with the given set of fields will conform to
     static func baseConformances<T, U>(for fields: OrderedDictionary<String, SelectionField<T, U>>) -> [ProtocolConformance] {
         if let field = fields["id"], field.name == "id", case .nonNull(.named("ID")) = field.type {
             return [.cacheable]
         } else {
-            return [.codable]
+            return [.codable, .hashable]
         }
     }
 }

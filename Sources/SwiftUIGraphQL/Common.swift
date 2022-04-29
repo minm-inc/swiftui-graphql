@@ -10,7 +10,7 @@ public struct NoVariables: Encodable, Equatable {
     }
 }
 
-public protocol Cacheable: Codable, Selectable, Identifiable {
+public protocol Cacheable: Codable, Selectable, Identifiable, Hashable {
     var __typename: String { get }
     var id: SwiftUIGraphQL.ID { get }
 }
