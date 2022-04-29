@@ -18,11 +18,14 @@ public func attachCacheableFields(schema: GraphQLSchema, document: Document) -> 
     struct AttachCacheableFieldsVisitor: Visitor {
         let typeInfo: TypeInfo
         func enter(selectionSet: SelectionSet, key: AnyKeyPath?, parent: VisitorParent?, ancestors: [VisitorParent]) -> VisitResult<SelectionSet> {
-            guard let type = typeInfo.type, isCacheable(type: type) else {
+            guard let type = typeInfo.type else {
                 return .continue
             }
-            func makeFieldIfNeeded(named: String) -> [Selection] {
-                let exists = selectionSet.selections.contains { selection in
+            
+            var newSelections = selectionSet.selections
+            
+            func appendFieldIfNeeded(named: String) {
+                let exists = newSelections.contains { selection in
                     if case let .field(field) = selection {
                         return field.name.value == named
                     } else {
@@ -30,16 +33,23 @@ public func attachCacheableFields(schema: GraphQLSchema, document: Document) -> 
                     }
                 }
                 if !exists {
-                    return [.field(Field(name: Name(value: named)))]
-                } else {
-                    return []
+                    newSelections.append(.field(Field(name: Name(value: named))))
                 }
             }
+            
+            if isCacheable(type: type) {
+                appendFieldIfNeeded(named: "id")
+                appendFieldIfNeeded(named: "__typename")
+            }
+            // These will be generated as enums so we need to be able to discriminate between them
+            if type is GraphQLUnionType || type is GraphQLInterfaceType {
+                appendFieldIfNeeded(named: "__typename")
+            }
+            
             return .node(
                 SelectionSet(
                     loc: selectionSet.loc,
-                    selections: selectionSet.selections +
-                    makeFieldIfNeeded(named: "id") + makeFieldIfNeeded(named: "__typename")
+                    selections: newSelections
                 )
             )
         }
