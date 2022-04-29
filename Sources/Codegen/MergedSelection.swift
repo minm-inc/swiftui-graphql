@@ -80,6 +80,10 @@ private struct SelectionMerger {
                         // The nested object conforms to the fragment
                         nested.fragmentConformances.append(fragmentName)
                     }
+                    
+                    // Merge the existing unconditional fields into the conditional's unconditional fields
+                    acc.fields.forEach { merge(field: $0.value, key: $0.key, into: &nested.fields) }
+                    
                     let typename = fragment.type.name
                     
                     // Move the nested's unconditional into conditionals
