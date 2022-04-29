@@ -71,7 +71,13 @@ public func generateCode(document rawDocument: Document, schema: GraphQLSchema) 
             let operationDecl = attach(operation: def, to: objectDecl, schema: schema, fragmentDefinitions: fragmentDefs)
             decls.append(operationDecl)
         case let .executableDefinition(.fragment(def)):
-            decls += gen(fragment: fragmentInfo.selections[def.name.value]!, named: def.name.value, fragmentInfo: fragmentInfo)
+            let fragmentName = def.name.value
+            var mergedSelection = fragmentInfo.selections[fragmentName]!
+            decls += gen(fragment: mergedSelection, named: fragmentName, fragmentInfo: fragmentInfo)
+            
+            // Generate a concrete object definition for the fragment, useful for constructing dummy values of the fragment for testing and design time
+            mergedSelection.fragmentConformances.append(fragmentName)
+            decls.append(gen(object: mergedSelection, named: "__\(def.name.value)Fragment", typename: def.typeCondition.name.value, fragmentInfo: fragmentInfo))
         default:
             break
         }
