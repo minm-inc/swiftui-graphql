@@ -14,12 +14,13 @@ public class GraphQLClient: ObservableObject {
     let endpoint: URL
     let headerCallback: () -> [String: String]
     let urlSession: URLSession
-    let scalarDecoder = FoundationScalarDecoder()
+    let scalarDecoder: ScalarDecoder
     
-    public init(endpoint: URL, urlSession: URLSession = .shared, withHeaders headerCallback: @escaping () -> [String: String] = { [:]}) {
+    public init(endpoint: URL, urlSession: URLSession = .shared, withHeaders headerCallback: @escaping () -> [String: String] = { [:]}, scalarDecoder: ScalarDecoder = FoundationScalarDecoder()) {
         self.endpoint = endpoint
         self.urlSession = urlSession
         self.headerCallback = headerCallback
+        self.scalarDecoder = scalarDecoder
     }
     
     func query(query: String, selection: ResolvedSelection<String>, variables: [String: Value]?, cacheUpdater: Cache.Updater? = nil) async throws -> Value {

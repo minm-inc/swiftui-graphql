@@ -7,53 +7,19 @@
 
 import Foundation
 
-public protocol ScalarDecoder {
-    static func decodeScalar(ofType type: Any.Type, value: Value) throws -> Any?
-}
-
-public enum ScalarDecoderError: Error {
-    case invalidScalar
-}
-
-/// Decodes scalars into foundation types
-public class FoundationScalarDecoder: ScalarDecoder {
-    public init() {}
-    public static func decodeScalar(ofType type: Any.Type, value: Value) throws -> Any? {
-        if type == Date.self {
-                switch value {
-                case .string(let s):
-                    return try Date(s, strategy: .iso8601)
-                default:
-                    throw ScalarDecoderError.invalidScalar
-                }
-        } else if type == URL.self {
-            switch value {
-            case .string(let s):
-                guard let url = URL(string: s) else {
-                    throw ScalarDecoderError.invalidScalar
-                }
-                return url
-            default:
-                throw ScalarDecoderError.invalidScalar
-            }
-        }
-        return nil
-    }
-}
-
-struct ValueDecoder<ScalarDec: ScalarDecoder> {
-    let scalarDecoder: ScalarDec
+struct ValueDecoder {
+    let scalarDecoder: ScalarDecoder
     func decode<T: Decodable>(_ type: T.Type, from value: Value) throws -> T {
         let decoder = ValueDecoderImpl(scalarDecoder: scalarDecoder, value: value)
         return try T.self.init(from: decoder)
     }
 }
 
-fileprivate struct ValueDecoderImpl<ScalarDec: ScalarDecoder>: Decoder {
+fileprivate struct ValueDecoderImpl: Decoder {
     var codingPath: [CodingKey] = []
     
     var userInfo: [CodingUserInfoKey : Any] = [:]
-    let scalarDecoder: ScalarDec
+    let scalarDecoder: ScalarDecoder
     let value: Value
     
     func container<Key>(keyedBy type: Key.Type) throws -> KeyedDecodingContainer<Key> where Key : CodingKey {
@@ -75,7 +41,7 @@ fileprivate struct ValueDecoderImpl<ScalarDec: ScalarDecoder>: Decoder {
     }
     
     struct UnkeyedContainer: UnkeyedDecodingContainer {
-        let scalarDecoder: ScalarDec
+        let scalarDecoder: ScalarDecoder
         let list: [Value]
         var codingPath: [CodingKey]
 
@@ -152,7 +118,7 @@ fileprivate struct ValueDecoderImpl<ScalarDec: ScalarDecoder>: Decoder {
         mutating func decode(_ type: UInt64.Type) throws -> UInt64 { try decodeFixedWidthInteger() }
         
         mutating func decode<T>(_ type: T.Type) throws -> T where T : Decodable {
-            if let scalarDecoded = try decodeScalarWrappingError(ofType: type, value: list[currentIndex], codingPath: codingPath, scalarDecoder: ScalarDec.self) {
+            if let scalarDecoded = try decodeScalarWrappingError(ofType: type, value: list[currentIndex], codingPath: codingPath, scalarDecoder: scalarDecoder) {
                 currentIndex += 1
                 return scalarDecoded
             } else {
@@ -187,7 +153,7 @@ fileprivate struct ValueDecoderImpl<ScalarDec: ScalarDecoder>: Decoder {
     }
     
     struct SingleValueContainer: SingleValueDecodingContainer {
-        let scalarDecoder: ScalarDec
+        let scalarDecoder: ScalarDecoder
         let value: Value
         var codingPath: [CodingKey]
         
@@ -257,7 +223,7 @@ fileprivate struct ValueDecoderImpl<ScalarDec: ScalarDecoder>: Decoder {
         func decode(_ type: UInt64.Type) throws -> UInt64 { try decodeFixedWidthInteger() }
         
         func decode<T>(_ type: T.Type) throws -> T where T : Decodable {
-            if let scalarDecoded = try decodeScalarWrappingError(ofType: type, value: value, codingPath: codingPath, scalarDecoder: ScalarDec.self) {
+            if let scalarDecoded = try decodeScalarWrappingError(ofType: type, value: value, codingPath: codingPath, scalarDecoder: scalarDecoder) {
                 return scalarDecoded
             } else {
                 let decoder = ValueDecoderImpl(codingPath: codingPath, scalarDecoder: scalarDecoder, value: value)
@@ -269,7 +235,7 @@ fileprivate struct ValueDecoderImpl<ScalarDec: ScalarDecoder>: Decoder {
     }
     
     struct KeyedContainer<Key: CodingKey>: KeyedDecodingContainerProtocol {
-        let scalarDecoder: ScalarDec
+        let scalarDecoder: ScalarDecoder
         var codingPath: [CodingKey] = []
         var allKeys: [Key] = []
         
@@ -347,7 +313,7 @@ fileprivate struct ValueDecoderImpl<ScalarDec: ScalarDecoder>: Decoder {
         
         func decode<T>(_ type: T.Type, forKey key: Key) throws -> T where T : Decodable {
             let value = try lookup(key)
-            if let scalarDecoded = try decodeScalarWrappingError(ofType: type, value: value, codingPath: codingPath, scalarDecoder: ScalarDec.self) {
+            if let scalarDecoded = try decodeScalarWrappingError(ofType: type, value: value, codingPath: codingPath, scalarDecoder: scalarDecoder) {
                 return scalarDecoded
             } else {
                 return try T.init(from: ValueDecoderImpl(scalarDecoder: scalarDecoder, value: value))
@@ -372,10 +338,10 @@ fileprivate struct ValueDecoderImpl<ScalarDec: ScalarDecoder>: Decoder {
     }
 }
 
-private func decodeScalarWrappingError<ScalarDec: ScalarDecoder, T>(ofType type: T.Type, value: Value, codingPath: [CodingKey], scalarDecoder: ScalarDec.Type) throws -> T? {
+private func decodeScalarWrappingError<T>(ofType type: T.Type, value: Value, codingPath: [CodingKey], scalarDecoder: ScalarDecoder) throws -> T? {
     let scalarDecoded: Any?
     do {
-        scalarDecoded = try ScalarDec.decodeScalar(ofType: type, value: value)
+        scalarDecoded = try scalarDecoder.decodeScalar(ofType: type, value: value)
     } catch {
         throw DecodingError.typeMismatch(type, .init(
             codingPath: codingPath,

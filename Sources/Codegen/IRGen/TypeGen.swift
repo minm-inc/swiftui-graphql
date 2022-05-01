@@ -114,5 +114,6 @@ private func genTypeName(forScalar type: GraphQLScalarType) -> String {
 /// Predefined types in Foundation that we should use for Scalars specified by the following URLs
 private let foundationScalars = [
     "https://tools.ietf.org/html/rfc1738": "URL",
-    "https://tools.ietf.org/html/rfc3339": "Date"
+    "https://tools.ietf.org/html/rfc3339": "Date",
+    "https://spec.commonmark.org/": "AttributedString"
 ]
