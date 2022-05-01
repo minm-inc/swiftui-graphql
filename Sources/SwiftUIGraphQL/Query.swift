@@ -71,18 +71,14 @@ public class QueryOperation<Response: Queryable>: Operation<Response> {
         if (variables != self.variables) {
             self.variables = variables
             Task {
-                do {
-                    let _ = try await self.execute(variables: variables)
-                } catch {
-                    // TODO handle network errors
-//                    if let error = error as? QueryError {
-//                        self.state = .error(error)
-//                    } else {
-//                        self.state = .error(.invalid)
-//                    }
-                }
+                await self.executeAndUpdateState(variables: variables)
             }
         }
         return state
+    }
+    
+    public func refresh() async {
+        guard let variables = self.variables else { return }
+        await self.executeAndUpdateState(variables: variables)
     }
 }

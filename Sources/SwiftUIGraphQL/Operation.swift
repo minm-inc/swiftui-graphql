@@ -56,7 +56,22 @@ public class Operation<Response: Queryable>: ObservableObject {
     
     @Published public private(set) var state: State = .loading
     
-    internal func execute(variables: Response.Variables) async throws -> Value {
+    func executeAndUpdateState(variables: Response.Variables) async {
+        do {
+            let _ = try await execute(variables: variables)
+        } catch {
+            await MainActor.run {
+                if let error = error as? QueryError {
+                    state = .error(error)
+                } else {
+                    state = .error(.invalid)
+                }
+            }
+        }
+    }
+    
+    // TODO: Refactor this so that state and response are one, and there's only one `execute` method
+    func execute(variables: Response.Variables) async throws -> Value {
         guard let client = client else { fatalError("Client not set") }
         
         let variablesObj = variablesToObject(variables)
@@ -67,9 +82,8 @@ public class Operation<Response: Queryable>: ObservableObject {
         } else {
             merged = incoming
         }
-        await MainActor.run {
-            self.response = merged
-        }
+        // Can only set response on the main actor
+        await MainActor.run { self.response = merged }
         return merged
     }
     
