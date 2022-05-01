@@ -99,15 +99,14 @@ public class Operation<Response: Queryable>: ObservableObject {
                     return (key, val)
                 }
             })
-            guard let existingCacheKey = cacheKey(from: recursed, selection: selection) else {
+            guard let existingCacheKey = cacheKey(from: recursed, selection: selection),
+                  changedKeys.contains(existingCacheKey),
+                  let changedObj = cacheStore[existingCacheKey] else {
                 return .object(recursed)
             }
-            if let changedObj = cacheStore[existingCacheKey] {
-                let incomingObj = value(from: changedObj, selection: selection, cacheStore: cacheStore)
-                return .object(oldObj.merging(incomingObj) { $1 })
-            } else {
-                return .object(recursed)
-            }
+            
+            let incomingObj = value(from: changedObj, selection: selection, cacheStore: cacheStore)
+            return .object(oldObj.merging(incomingObj) { $1 })
         case .list(let objs):
             return .list(objs.map { update(value: $0, selection: selection, changedKeys: changedKeys, cacheStore: cacheStore) })
         default:
