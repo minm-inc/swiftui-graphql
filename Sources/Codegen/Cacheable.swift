@@ -18,7 +18,7 @@ public func attachCacheableFields(schema: GraphQLSchema, document: Document) -> 
     struct AttachCacheableFieldsVisitor: Visitor {
         let typeInfo: TypeInfo
         func enter(selectionSet: SelectionSet, key: AnyKeyPath?, parent: VisitorParent?, ancestors: [VisitorParent]) -> VisitResult<SelectionSet> {
-            guard let type = typeInfo.type else {
+            guard let type = typeInfo.type.map(underlyingType(_:)) else {
                 return .continue
             }
             
