@@ -51,7 +51,7 @@ public class GraphQLClient: ObservableObject {
     }
     
     // Note: try! all the encoding/decoding as these are programming errors
-    public func query<T: Queryable>(variables: T.Variables) async throws -> T {
+    public func query<T: Queryable>(_ queryable: T.Type, variables: T.Variables) async throws -> T {
         let decodedData = try await query(query: T.query, selection: T.selection, variables: variablesToObject(variables))
         return try! ValueDecoder(scalarDecoder: scalarDecoder).decode(T.self, from: decodedData)
     }
@@ -88,12 +88,12 @@ public class GraphQLClient: ObservableObject {
 }
 
 public struct QueryResponse<T: Decodable>: Decodable {
-    let data: T?
-    let errors: [GraphQLError]?
+    public let data: T?
+    public let errors: [GraphQLError]?
 }
 
 public struct GraphQLError: Decodable {
-    let message: String
+    public let message: String
 }
 
 public struct QueryRequest: Encodable {
