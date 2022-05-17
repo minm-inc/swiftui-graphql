@@ -48,36 +48,59 @@ struct Codegen: AsyncParsableCommand {
         return try buildClientSchema(introspection: introspection)
     }
     
+    @Option(name: [.long, .customShort("C")], help: "The directory to search for other .graphql files in")
+    var projectDirectory: String?
+    
     @ArgumentParser.Argument(help: "The .graphql file to generate Swift code for")
     var input: String
     static var configuration = CommandConfiguration(
         abstract: "Generate Swift code for a query"
     )
     
-    mutating func run() async throws {
-        let schema = try await loadSchema()
+    private func collectGlobalFragmentDefinitions(schema: GraphQLSchema) throws -> [FragmentDefinition] {
+        let projectDirectory = projectDirectory.map(URL.init(string:)).map { $0! } ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        let enumerator = FileManager.default.enumerator(at: projectDirectory, includingPropertiesForKeys: [.isDirectoryKey], options: .skipsHiddenFiles)!
         
-        let source = GraphQL.Source(body: try String(contentsOfFile: input), name: input)
-        let document: Document
-        
-        /// Print the errors in a xcode friendly format:
-        /// `{full_path_to_file}{:line}{:character}: {error,warning}: {content}`
-        func printXcodeError(_ e: GraphQL.GraphQLError) {
-            let lineStr: String
-            if let location = e.locations.first {
-                lineStr = "\(input):\(location.line):\(location.column)"
-            } else {
-                lineStr = "\(input)"
+        var definitions: [FragmentDefinition] = []
+        for case let fileURL as URL in enumerator {
+            let isDirectory = try fileURL.resourceValues(forKeys: [.isDirectoryKey]).isDirectory
+            if let isDirectory = isDirectory, isDirectory { continue }
+            if fileURL.pathExtension == "graphql" {
+                var document = try parse(contents: String(contentsOf: fileURL), filename: fileURL.relativeString)
+                document = attachCacheableFields(schema: schema, document: document)
+                definitions += fragmentDefinitions(from: document)
             }
-            print("\(lineStr): error: \(e)", to: &standardError)
         }
-        
+        return definitions
+    }
+    
+    /// Print the errors in a xcode friendly format:
+    /// `{full_path_to_file}{:line}{:character}: {error,warning}: {content}`
+    private func printXcodeError(_ e: GraphQL.GraphQLError) {
+        let lineStr: String
+        let input = e.source!.name
+        if let location = e.locations.first {
+            lineStr = "\(input):\(location.line):\(location.column)"
+        } else {
+            lineStr = "\(input)"
+        }
+        print("\(lineStr): error: \(e)", to: &standardError)
+    }
+    
+    private func parse(contents: String, filename: String) throws -> GraphQL.Document {
         do {
-            document = try GraphQL.parse(source: source)
+            let source = GraphQL.Source(body: contents, name: filename)
+            return try GraphQL.parse(source: source)
         } catch let error as GraphQL.GraphQLError {
             printXcodeError(error)
             Foundation.exit(1)
         }
+    }
+    
+    mutating func run() async throws {
+        let schema = try await loadSchema()
+        
+        let document = try parse(contents: String(contentsOfFile: input), filename: input)
         
         let validationErrors = GraphQL.validate(schema: schema, ast: document)
         if !validationErrors.isEmpty {
@@ -86,7 +109,8 @@ struct Codegen: AsyncParsableCommand {
         }
         
         var output = FileOutputStream(path: output)
-        generateCode(document: document, schema: schema).write(to: &output)
+        generateCode(document: document, schema: schema, globalFragments: try collectGlobalFragmentDefinitions(schema: schema))
+            .write(to: &output)
     }
     
     struct FileOutputStream: TextOutputStream {

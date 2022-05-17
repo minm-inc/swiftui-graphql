@@ -51,24 +51,18 @@ import OrderedCollections
 ///            └─────────────┘
 ///
 /// ```
-public func generateCode(document rawDocument: Document, schema: GraphQLSchema) -> Syntax {
+public func generateCode(document rawDocument: Document, schema: GraphQLSchema, globalFragments: [FragmentDefinition]) -> Syntax {
     let document = attachCacheableFields(schema: schema, document: rawDocument)
     var decls = [Decl]()
     
-    let fragmentDefs: [FragmentDefinition] = document.definitions.compactMap {
-        if case let .executableDefinition(.fragment(fragmentDef)) = $0 {
-            return fragmentDef
-        } else {
-            return nil
-        }
-    }
-    let fragmentInfo = FragmentInfo(fragmentDefinitions: fragmentDefs, schema: schema)
+    let documentFragments = fragmentDefinitions(from: document)
+    let fragmentInfo = FragmentInfo(fragmentDefinitions: globalFragments + documentFragments, schema: schema)
     
     for def in document.definitions {
         switch def {
         case let .executableDefinition(.operation(def)):
-            let objectDecl = gen(operation: def, schema: schema, fragments: fragmentDefs, fragmentInfo: fragmentInfo)
-            let operationDecl = attach(operation: def, to: objectDecl, schema: schema, fragmentDefinitions: fragmentDefs)
+            let objectDecl = gen(operation: def, schema: schema, fragmentInfo: fragmentInfo)
+            let operationDecl = attach(operation: def, to: objectDecl, schema: schema, fragmentInfo: fragmentInfo)
             decls.append(operationDecl)
         case let .executableDefinition(.fragment(def)):
             let fragmentName = def.name.value
@@ -116,9 +110,9 @@ public func generateCode(document rawDocument: Document, schema: GraphQLSchema) 
     return Syntax(sourceFile)
 }
 
-private func gen(operation def: OperationDefinition, schema: GraphQLSchema, fragments: [FragmentDefinition], fragmentInfo: FragmentInfo) -> Decl {
+private func gen(operation def: OperationDefinition, schema: GraphQLSchema, fragmentInfo: FragmentInfo) -> Decl {
     let parentType = operationRootType(for: def.operation, schema: schema)
-    let unresolvedSelections = makeUnmergedSelections(selectionSet: def.selectionSet, parentType: parentType, schema: schema, fragments: fragments)
+    let unresolvedSelections = makeUnmergedSelections(selectionSet: def.selectionSet, parentType: parentType, schema: schema, fragments: fragmentInfo.definitions)
     let mergedSelection = merge(unmergedSelections: unresolvedSelections, type: parentType, schema: schema)
     
     let name = (def.name?.value.firstUppercased ?? "Anonymous") + operationSuffix(for: def.operation)
@@ -134,5 +128,15 @@ private func operationSuffix(for type: OperationType) -> String {
         return "Mutation"
     case .subscription:
         return "Subscription"
+    }
+}
+
+public func fragmentDefinitions(from document: Document) -> [FragmentDefinition] {
+    document.definitions.compactMap {
+        if case let .executableDefinition(.fragment(fragmentDef)) = $0 {
+            return fragmentDef
+        } else {
+            return nil
+        }
     }
 }

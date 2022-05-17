@@ -10,6 +10,8 @@ enum Decl: Equatable {
         defaultCase: Case?,
         genericParameters: [GenericParameter]
     )
+    /// An `extension Foo: Bar { ... }`
+    case `extension`(type: DeclType, conforms: [String], decls: [Decl])
     case `let`(
         name: String,
         type: DeclType? = nil,
@@ -22,7 +24,6 @@ enum Decl: Equatable {
         case `var`
         case `get`(Syntax? = nil)
     }
-    case staticLetString(name: String, literal: String)
     case `protocol`(name: String, conforms: [String], whereClauses: [WhereClause], decls: [Decl])
     case `associatedtype`(name: String, inherits: String)
     case `func`(name: String, parameters: [Parameter] = [], `throws`: Throws? = nil, returnType: DeclType? = nil, body: [Syntax]?, access: FuncAccess? = nil)
@@ -42,6 +43,8 @@ enum Decl: Equatable {
             self.type = type
         }
     }
+    
+    case `typealias`(name: String, type: DeclType)
     
     enum Throws: Equatable {
         case `throws`, `rethrows`
@@ -91,7 +94,7 @@ indirect enum Expr: Hashable, ExpressibleByStringLiteral {
     /** `{ expr }` */
     case closure(Expr)
     case `self`
-    case stringLiteral(String)
+    case stringLiteral(String, multiline: Bool = false)
     case boolLiteral(Bool)
     case intLiteral(Int)
     case floatLiteral(Double)

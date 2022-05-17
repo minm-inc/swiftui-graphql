@@ -17,15 +17,23 @@ class SwiftGen {
             return DeclSyntax(
                 genVariableDecl(
                     identifier: name,
-                    type: type.map(typeSyntax(for:)),
+                    type: type.map(gen(type:)),
                     initializer: initializer.map(gen),
                     accessor: accessor,
                     isStatic: isStatic
                 )
             ).withTrailingTrivia(.newlines(1))
-        case let .struct(name, defs, conforms):
-            return DeclSyntax(genStruct(name: name, defs: defs, conforms: conforms))
+        case let .struct(name, decls, conforms):
+            return DeclSyntax(genStruct(name: name, decls: decls, conforms: conforms))
                         .withTrailingTrivia(.newlines(1))
+        case let .extension(type, conforms, decls):
+            return DeclSyntax(
+                genExtension(
+                    type: gen(type: type),
+                    conforms: conforms,
+                    decls: decls
+                )
+            ).withTrailingTrivia(.newlines(1))
         case let .enum(name, cases, decls, conforms, defaultCase, genericParameters):
             return DeclSyntax(
                 genEnum(
@@ -37,8 +45,6 @@ class SwiftGen {
                     genericParameters: genericParameters
                 )
             ).withTrailingTrivia(.newlines(1))
-        case let .staticLetString(name, literal):
-            return DeclSyntax(genStaticLetString(name: name, literal: literal))
         case let .protocol(name, conforms, whereClauses, decls):
             return DeclSyntax(genProtocol(name: name, conforms: conforms, whereClauses: whereClauses, decls: decls))
         case let .associatedtype(name, inherits):
@@ -49,13 +55,15 @@ class SwiftGen {
                     name: name,
                     parameters: parameters,
                     throws: `throws`,
-                    returnType: returnType.map(typeSyntax(for:)),
+                    returnType: returnType.map(gen(type:)),
                     body: body.mapThunk { $0.map(self.gen(syntax:)) },
                     access: access
                 )
             )
         case let .`init`(parameters, `throws`, body):
             return DeclSyntax(genInit(parameters: parameters, throws: `throws`, body: body.mapThunk { $0.map(self.gen(syntax:)) }))
+        case let .`typealias`(name, type):
+            return DeclSyntax(genTypealias(name: name, type: gen(type: type)))
         }
     }
     
@@ -100,8 +108,8 @@ class SwiftGen {
             return gen(expr: .identifier("$\(identifier)"))
         case let .closure(expr):
             return ExprSyntax(genClosure(expr: expr))
-        case let .stringLiteral(string):
-            return genStringLiteral(string: string)
+        case let .stringLiteral(string, multiline):
+            return genStringLiteral(string: string, multiline: multiline)
         case let .boolLiteral(bool):
             return ExprSyntax(genBoolLiteral(bool: bool))
         case let .intLiteral(int):
@@ -145,7 +153,6 @@ class SwiftGen {
                     if i < conforms.endIndex - 1 {
                         $0.useTrailingComma(
                             SyntaxFactory.makeCommaToken(
-                                leadingTrivia: .zero,
                                 trailingTrivia: .spaces(1)
                             )
                         )
@@ -155,32 +162,18 @@ class SwiftGen {
         }
     }
     
-    private func genStruct(name: String, defs: [Decl], conforms: [String]) -> StructDeclSyntax {
-        StructDeclSyntax { builder in
-            builder.useStructKeyword(
+    private func genStruct(name: String, decls: [Decl], conforms: [String]) -> StructDeclSyntax {
+        StructDeclSyntax {
+            $0.useStructKeyword(
                 SyntaxFactory
                     .makeStructKeyword(
                         leadingTrivia: .spaces(indentationLevel),
                         trailingTrivia: .spaces(1)
                     )
             )
-            builder.useIdentifier(SyntaxFactory.makeIdentifier(name))
-            builder.useInheritanceClause(genInheritanceClause(conforms: conforms))
-            builder.useMembers(MemberDeclBlockSyntax { builder in
-                builder.useLeftBrace(SyntaxFactory.makeLeftBraceToken().withLeadingTrivia(.spaces(1)).withTrailingTrivia(.newlines(1)))
-                builder.useRightBrace(
-                    SyntaxFactory
-                        .makeRightBraceToken()
-                        .withLeadingTrivia(.spaces(indentationLevel))
-                )
-                indent {
-                    for def in defs {
-                        builder.addMember(MemberDeclListItemSyntax {
-                            $0.useDecl(gen(decl: def))
-                        })
-                    }
-                }
-            })
+            $0.useIdentifier(SyntaxFactory.makeIdentifier(name))
+            $0.useInheritanceClause(genInheritanceClause(conforms: conforms))
+            $0.useMembers(genMemberDeclBlockSyntax(decls: decls))
         }
     }
     
@@ -200,7 +193,7 @@ class SwiftGen {
                         $0.addGenericParameter(GenericParameterSyntax {
                             $0.useName(SyntaxFactory.makeIdentifier(param.identifier))
                             $0.useColon(SyntaxFactory.makeColonToken().withTrailingTrivia(.spaces(1)))
-                            $0.useInheritedType(typeSyntax(for: param.constraint))
+                            $0.useInheritedType(gen(type: param.constraint))
                             if i < genericParameters.index(before: genericParameters.endIndex) {
                                 $0.useTrailingComma(SyntaxFactory.makeCommaToken().withTrailingTrivia(.spaces(1)))
                             }
@@ -266,35 +259,17 @@ class SwiftGen {
         }.withTrailingTrivia(.newlines(1))
     }
     
-    private func genStaticLetString(name: String, literal: String) -> VariableDeclSyntax {
-        VariableDeclSyntax {
-            $0.addModifier(DeclModifierSyntax {
-                $0.useName(
-                    SyntaxFactory.makeStaticKeyword(
-                        leadingTrivia: .spaces(indentationLevel),
-                        trailingTrivia: .spaces(1)
-                    )
-                )
-            })
-            $0.useLetOrVarKeyword(
-                SyntaxFactory.makeLetKeyword().withTrailingTrivia(.spaces(1))
-            )
-            $0.addBinding(PatternBindingSyntax {
-                $0.usePattern(PatternSyntax(
-                    IdentifierPatternSyntax {
-                        $0.useIdentifier(SyntaxFactory.makeIdentifier(name))
-                    }.withTrailingTrivia(.spaces(1))
-                ))
-                $0.useInitializer(InitializerClauseSyntax {
-                    $0.useEqual(
-                        SyntaxFactory.makeEqualToken().withTrailingTrivia(.spaces(1))
-                    )
-                    $0.useValue(
-                        genStringLiteral(string: literal, multiline: true)
-                            .withTrailingTrivia(.newlines(1))
-                    )
-                })
-            })
+    private func genExtension(type: TypeSyntax, conforms: [String], decls: [Decl]) -> ExtensionDeclSyntax {
+        ExtensionDeclSyntax {
+            $0.useExtensionKeyword(SyntaxFactory.makeExtensionKeyword(
+                leadingTrivia: .spaces(indentationLevel),
+                trailingTrivia: .spaces(1)
+            ))
+            $0.useExtendedType(type)
+            if !conforms.isEmpty {
+                $0.useInheritanceClause(genInheritanceClause(conforms: conforms))
+            }
+            $0.useMembers(genMemberDeclBlockSyntax(decls: decls))
         }
     }
     
@@ -308,21 +283,7 @@ class SwiftGen {
             )
             $0.useIdentifier(SyntaxFactory.makeIdentifier(name))
             if !conforms.isEmpty {
-                $0.useInheritanceClause(TypeInheritanceClauseSyntax {
-                    $0.useColon(SyntaxFactory.makeColonToken().withTrailingTrivia(.spaces(1)))
-                    for (i, conformance) in conforms.enumerated() {
-                        $0.addInheritedType(InheritedTypeSyntax {
-                            $0.useTypeName(TypeSyntax(
-                                SimpleTypeIdentifierSyntax {
-                                    $0.useName(SyntaxFactory.makeIdentifier(conformance))
-                                }
-                            ))
-                            if i < conforms.index(before: conforms.endIndex) {
-                                $0.useTrailingComma(SyntaxFactory.makeCommaToken().withTrailingTrivia(.spaces(1)))
-                            }
-                        })
-                    }
-                })
+                $0.useInheritanceClause(genInheritanceClause(conforms: conforms))
             }
             if !whereClauses.isEmpty {
                 $0.useGenericWhereClause(GenericWhereClauseSyntax {
@@ -340,20 +301,24 @@ class SwiftGen {
                     }
                 })
             }
-            $0.useMembers(MemberDeclBlockSyntax { builder in
-                builder.useLeftBrace(SyntaxFactory.makeLeftBraceToken(
-                    leadingTrivia: .spaces(1),
-                    trailingTrivia: .newlines(1)
-                ))
-                indent {
-                    for decl in decls {
-                        builder.addMember(MemberDeclListItemSyntax {
-                            $0.useDecl(gen(decl: decl).withTrailingTrivia(.newlines(1)))
-                        })
-                    }
+            $0.useMembers(genMemberDeclBlockSyntax(decls: decls))
+        }
+    }
+    
+    private func genMemberDeclBlockSyntax(decls: [Decl]) -> MemberDeclBlockSyntax {
+        MemberDeclBlockSyntax { builder in
+            builder.useLeftBrace(SyntaxFactory.makeLeftBraceToken(
+                leadingTrivia: .spaces(1),
+                trailingTrivia: .newlines(1)
+            ))
+            indent {
+                for decl in decls {
+                    builder.addMember(MemberDeclListItemSyntax {
+                        $0.useDecl(gen(decl: decl).withTrailingTrivia(.newlines(1)))
+                    })
                 }
-                builder.useRightBrace(SyntaxFactory.makeRightBraceToken(leadingTrivia: .spaces(indentationLevel), trailingTrivia: .newlines(1)))
-            })
+            }
+            builder.useRightBrace(SyntaxFactory.makeRightBraceToken(leadingTrivia: .spaces(indentationLevel), trailingTrivia: .newlines(1)))
         }
     }
     
@@ -586,7 +551,7 @@ class SwiftGen {
                         $0.useSecondName(SyntaxFactory.makeIdentifier(secondName).withLeadingTrivia(.spaces(1)))
                     }
                     $0.useColon(SyntaxFactory.makeColonToken().withTrailingTrivia(.spaces(1)))
-                    $0.useType(typeSyntax(for: parameter.type))
+                    $0.useType(gen(type: parameter.type))
                     if i < parameters.index(before: parameters.endIndex) {
                         $0.useTrailingComma(SyntaxFactory.makeCommaToken().withTrailingTrivia(.spaces(1)))
                     }
@@ -664,6 +629,20 @@ class SwiftGen {
                 $0.useBody(genCodeBlockSyntax(body))
             }
         }.withLeadingTrivia(.spaces(indentationLevel))
+    }
+    
+    private func genTypealias(name: String, type: TypeSyntax) -> TypealiasDeclSyntax {
+        TypealiasDeclSyntax {
+            $0.useTypealiasKeyword(SyntaxFactory.makeTypealiasKeyword(
+                leadingTrivia: .spaces(indentationLevel),
+                trailingTrivia: .spaces(1)
+            ))
+            $0.useIdentifier(SyntaxFactory.makeIdentifier(name).withTrailingTrivia(.spaces(1)))
+            $0.useInitializer(TypeInitializerClauseSyntax {
+                $0.useEqual(SyntaxFactory.makeEqualToken().withTrailingTrivia(.spaces(1)))
+                $0.useValue(type)
+            })
+        }.withTrailingTrivia(.newlines(1))
     }
     
     private func genMemberAccess(base: Expr?, member: String) -> MemberAccessExprSyntax {
@@ -824,7 +803,7 @@ class SwiftGen {
         return f()
     }
     
-    private func typeSyntax(for type: DeclType) -> TypeSyntax {
+    private func gen(type: DeclType) -> TypeSyntax {
         switch type {
         case .named(let name, let genericArgs):
             return TypeSyntax(SimpleTypeIdentifierSyntax {
@@ -834,7 +813,7 @@ class SwiftGen {
                         $0.useLeftAngleBracket(SyntaxFactory.makeLeftAngleToken())
                         for (i, arg) in genericArgs.enumerated() {
                             $0.addArgument(GenericArgumentSyntax {
-                                $0.useArgumentType(typeSyntax(for: arg))
+                                $0.useArgumentType(gen(type: arg))
                                 if i < genericArgs.index(before: genericArgs.endIndex) {
                                     $0.useTrailingComma(
                                         SyntaxFactory.makeCommaToken()
@@ -849,18 +828,18 @@ class SwiftGen {
             })
         case .optional(let type):
             return TypeSyntax(OptionalTypeSyntax {
-                $0.useWrappedType(typeSyntax(for: type))
+                $0.useWrappedType(gen(type: type))
                 $0.useQuestionMark(SyntaxFactory.makePostfixQuestionMarkToken())
             })
         case .array(let type):
             return TypeSyntax(ArrayTypeSyntax {
                 $0.useLeftSquareBracket(SyntaxFactory.makeLeftSquareBracketToken())
                 $0.useRightSquareBracket(SyntaxFactory.makeRightSquareBracketToken())
-                $0.useElementType(typeSyntax(for: type))
+                $0.useElementType(gen(type: type))
             })
         case .memberType(let name, let base):
             return TypeSyntax(MemberTypeIdentifierSyntax {
-                $0.useBaseType(typeSyntax(for: base))
+                $0.useBaseType(gen(type: base))
                 $0.usePeriod(SyntaxFactory.makePeriodToken())
                 $0.useName(SyntaxFactory.makeIdentifier(name))
             })
@@ -870,7 +849,7 @@ class SwiftGen {
 }
 
 
-func genStringLiteral(string: String, multiline: Bool = false) -> ExprSyntax {
+func genStringLiteral(string: String, multiline: Bool) -> ExprSyntax {
     let quote = multiline ?
         SyntaxFactory
             .makeMultilineStringQuoteToken()
