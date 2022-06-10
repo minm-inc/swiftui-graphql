@@ -37,15 +37,21 @@ struct Codegen: AsyncParsableCommand {
     
     func loadSchema() async throws -> GraphQLSchema {
         let queryRequest = QueryRequest(query: getIntrospectionQuery(specifiedByURL: true))
-        let introspection: IntrospectionQuery
         
         if schema.host != nil {
-            introspection = try await GraphQLClient(endpoint: schema).makeRequest(queryRequest)
+            let introspection: IntrospectionQuery = try await GraphQLClient(endpoint: schema).makeRequest(queryRequest)
+            return try buildClientSchema(introspection: introspection)
         } else {
             let url = URL(fileURLWithPath: schema.absoluteString)
-            introspection = try JSONDecoder().decode(IntrospectionQuery.self, from: Data(contentsOf: url))
+            if url.pathExtension == "json" {
+                let introspection = try JSONDecoder().decode(IntrospectionQuery.self, from: Data(contentsOf: url))
+                return try buildClientSchema(introspection: introspection)
+            } else {
+                let _ = try parse(contents: String(contentsOf: url), filename: url.lastPathComponent)
+                // TODO: Implement buildASTSchema in graphql-swift
+                fatalError("TODO")
+            }
         }
-        return try buildClientSchema(introspection: introspection)
     }
     
     @Option(name: [.long, .customShort("C")], help: "The directory to search for other .graphql files in")
