@@ -1,4 +1,4 @@
-// swift-tools-version:5.6
+// swift-tools-version:5.7
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import PackageDescription
@@ -16,11 +16,11 @@ let package = Package(
             targets: ["SwiftUIGraphQL"]),
         .executable(
             name: "swiftui-graphql-codegen",
-            targets: ["CodegenExecutable"]
+            targets: ["swiftui-graphql-codegen"]
         ),
         .executable(
             name: "swiftui-graphql-download-schema",
-            targets: ["DownloadSchema"]
+            targets: ["swiftui-graphql-download-schema"]
         ),
         .plugin(name: "SwiftUIGraphQLCodegenPlugin", targets: ["CodegenPlugin"]),
         .plugin(name: "SwiftUIGraphQLDownloadSchemaPlugin", targets: ["DownloadSchemaPlugin"])
@@ -52,14 +52,14 @@ let package = Package(
             .product(name: "GraphQL", package: "graphql-swift"),
             .product(name: "OrderedCollections", package: "swift-collections")
         ]),
-        .executableTarget(name: "CodegenExecutable", dependencies: ["Codegen"]),
+        .executableTarget(name: "swiftui-graphql-codegen", dependencies: ["Codegen"]),
         .testTarget(
             name: "CodegenTests",
             dependencies: ["Codegen"],
             resources: [Resource.copy("Cases")]
         ),
-        .plugin(name: "CodegenPlugin", capability: .buildTool(), dependencies: ["CodegenExecutable"]),
-        .executableTarget(name: "DownloadSchema", dependencies: [
+        .plugin(name: "CodegenPlugin", capability: .buildTool(), dependencies: ["swiftui-graphql-codegen"]),
+        .executableTarget(name: "swiftui-graphql-download-schema", dependencies: [
             "SwiftUIGraphQL",
             .product(name: "GraphQL", package: "graphql-swift"),
             .product(name: "ArgumentParser", package: "swift-argument-parser")
@@ -70,7 +70,7 @@ let package = Package(
                 intent: .custom(verb: "download-schema", description: "Downloads the graphql schema"),
                 permissions: [.writeToPackageDirectory(reason: "To write the downloaded schema.json")]
             ),
-            dependencies: ["DownloadSchema"]
+            dependencies: ["swiftui-graphql-download-schema"]
         )
     ]
 )

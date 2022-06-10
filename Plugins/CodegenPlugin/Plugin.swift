@@ -3,7 +3,7 @@ import PackagePlugin
 
 @main struct CodegenPlugin: BuildToolPlugin {
     func createBuildCommands(context: PluginContext, target: Target) async throws -> [Command] {
-        let tool = try context.tool(named: "CodegenExecutable")
+        let tool = try context.tool(named: "swiftui-graphql-codegen")
         guard let target = target as? SourceModuleTarget else {
             return []
         }
