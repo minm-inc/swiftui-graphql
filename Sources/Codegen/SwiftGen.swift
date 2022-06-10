@@ -164,12 +164,9 @@ class SwiftGen {
     
     private func genStruct(name: String, decls: [Decl], conforms: [String]) -> StructDeclSyntax {
         StructDeclSyntax {
+            $0.addModifier(publicModifier.withLeadingTrivia(.spaces(indentationLevel)))
             $0.useStructKeyword(
-                SyntaxFactory
-                    .makeStructKeyword(
-                        leadingTrivia: .spaces(indentationLevel),
-                        trailingTrivia: .spaces(1)
-                    )
+                SyntaxFactory.makeStructKeyword(trailingTrivia: .spaces(1))
             )
             $0.useIdentifier(SyntaxFactory.makeIdentifier(name))
             $0.useInheritanceClause(genInheritanceClause(conforms: conforms))
@@ -179,11 +176,9 @@ class SwiftGen {
     
     private func genEnum(name: String, cases: [Decl.Case], decls: [Decl], conforms: [String], defaultCase: Decl.Case?, genericParameters: [Decl.GenericParameter]) -> EnumDeclSyntax {
         EnumDeclSyntax {
+            $0.addModifier(publicModifier.withLeadingTrivia(.spaces(indentationLevel)))
             $0.useEnumKeyword(
-                SyntaxFactory.makeEnumKeyword(
-                    leadingTrivia: .spaces(indentationLevel),
-                    trailingTrivia: .spaces(1)
-                )
+                SyntaxFactory.makeEnumKeyword(trailingTrivia: .spaces(1))
             )
             $0.useIdentifier(SyntaxFactory.makeIdentifier(name))
             if !genericParameters.isEmpty {
@@ -275,11 +270,9 @@ class SwiftGen {
     
     private func genProtocol(name: String, conforms: [String], whereClauses: [Decl.WhereClause], decls: [Decl]) -> ProtocolDeclSyntax {
         ProtocolDeclSyntax {
+            $0.addModifier(publicModifier.withLeadingTrivia(.spaces(indentationLevel)))
             $0.useProtocolKeyword(
-                SyntaxFactory.makeProtocolKeyword(
-                    leadingTrivia: .spaces(indentationLevel),
-                    trailingTrivia: .spaces(1)
-                )
+                SyntaxFactory.makeProtocolKeyword(trailingTrivia: .spaces(1))
             )
             $0.useIdentifier(SyntaxFactory.makeIdentifier(name))
             if !conforms.isEmpty {
@@ -403,6 +396,7 @@ class SwiftGen {
     private func genVariableDecl(identifier: String, type: TypeSyntax?, initializer: ExprSyntax?, accessor: Decl.LetAccessor, isStatic: Bool) -> DeclSyntax {
         DeclSyntax(
             VariableDeclSyntax {
+                $0.addModifier(publicModifier)
                 let letOrVarKeyword: TokenSyntax
                 switch accessor {
                 case .let:
@@ -620,6 +614,7 @@ class SwiftGen {
     
     private func genInit(parameters: [Decl.Parameter], throws: Decl.Throws?, body: (() -> [Syntax])?) -> InitializerDeclSyntax {
         InitializerDeclSyntax {
+            $0.addModifier(publicModifier)
             $0.useInitKeyword(SyntaxFactory.makeInitKeyword())
             $0.useParameters(gen(parameters: parameters).withTrailingTrivia(.spaces(1)))
             if let `throws` = `throws` {
@@ -792,6 +787,12 @@ class SwiftGen {
                     $0.useIdentifier(SyntaxFactory.makeIdentifier(identifier))
                 }))
             }))
+        }
+    }
+    
+    private var publicModifier: DeclModifierSyntax {
+        DeclModifierSyntax {
+            $0.useName(SyntaxFactory.makePublicKeyword(trailingTrivia: .spaces(1)))
         }
     }
     
