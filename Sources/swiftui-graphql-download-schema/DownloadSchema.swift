@@ -18,7 +18,7 @@ struct DownloadSchema: AsyncParsableCommand {
     var output: String
     
     mutating func run() async throws {
-        let queryRequest = QueryRequest(query: getIntrospectionQuery())
+        let queryRequest = QueryRequest(query: getIntrospectionQuery(specifiedByURL: true))
         let introspection: IntrospectionQuery = try await GraphQLClient(endpoint: endpoint).makeRequest(queryRequest)
         try JSONEncoder().encode(introspection).write(to: URL(fileURLWithPath: output))
     }
