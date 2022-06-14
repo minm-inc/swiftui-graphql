@@ -2,6 +2,7 @@ import XCTest
 @testable import Codegen
 @testable import GraphQL
 
+// TODO: Convert these to modern tests
 //final class OperationGenTests: XCTestCase {
 //    
 //    lazy var schema: GraphQLSchema = {

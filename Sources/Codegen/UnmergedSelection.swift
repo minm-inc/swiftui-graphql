@@ -9,23 +9,23 @@ enum UnmergedSelection {
         let name: String
         let alias: String?
         let arguments: OrderedDictionary<String, NonConstValue>
-        let type: GraphQLOutputType
+        let type: any GraphQLOutputType
         let selections: [UnmergedSelection]
     }
     case fragment(Fragment)
     struct Fragment {
         let name: String?
-        let type: GraphQLCompositeType
+        let type: any GraphQLCompositeType
         let selections: [UnmergedSelection]
     }
 }
 
-func makeUnmergedSelections(selectionSet: SelectionSet, parentType: GraphQLNamedType, schema: GraphQLSchema, fragments: [FragmentDefinition]) -> [UnmergedSelection] {
+func makeUnmergedSelections(selectionSet: SelectionSet, parentType: any GraphQLNamedType, schema: GraphQLSchema, fragments: [FragmentDefinition]) -> [UnmergedSelection] {
     let fragmentMap = [Name: [FragmentDefinition]](grouping: fragments) { $0.name }.mapValues { $0.first! }
     return makeUnmergedSelections(selectionSet: selectionSet, parentType: parentType, schema: schema, fragmentMap: fragmentMap)
 }
 
-private func makeUnmergedSelections(selectionSet: SelectionSet, parentType: GraphQLNamedType, schema: GraphQLSchema, fragmentMap: [Name: FragmentDefinition]) -> [UnmergedSelection] {
+private func makeUnmergedSelections(selectionSet: SelectionSet, parentType: any GraphQLNamedType, schema: GraphQLSchema, fragmentMap: [Name: FragmentDefinition]) -> [UnmergedSelection] {
     selectionSet.selections.map { selection in
         switch selection {
         case let .field(field):
@@ -52,7 +52,7 @@ private func makeUnmergedSelections(selectionSet: SelectionSet, parentType: Grap
             ))
         case let .fragmentSpread(fragmentSpread):
             let fragment = fragmentMap[fragmentSpread.name]!
-            let type = schema.getType(name: fragment.typeCondition.name.value)! as! GraphQLCompositeType
+            let type = schema.getType(name: fragment.typeCondition.name.value)! as! (any GraphQLCompositeType)
             return .fragment(.init(
                 name: fragment.name.value,
                 type: type,
@@ -64,7 +64,7 @@ private func makeUnmergedSelections(selectionSet: SelectionSet, parentType: Grap
                 )
             ))
         case let .inlineFragment(inlineFragment):
-            let type: GraphQLCompositeType
+            let type: any GraphQLCompositeType
             if let typeCondition = inlineFragment.typeCondition {
                 type = schema.getType(name: typeCondition.name.value)! as! GraphQLCompositeType
             } else {

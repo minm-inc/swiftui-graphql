@@ -6,7 +6,7 @@ public struct FieldName: Hashable, ExpressibleByStringLiteral {
     public init(_ name: String) { self.name = name }
 }
 
-public struct SelectionField<Arguments, Nested> {
+public struct SelectionField<Arguments, Nested, Type> {
     /// This is the actual name of the field *as it appears on the type* – i.e. without the alias
     public let name: FieldName
     // This will be implementation dependent:
@@ -25,7 +25,7 @@ public struct SelectionField<Arguments, Nested> {
 /// Represents the fields that were selected for a particular object that was code generated.
 public struct ResolvedSelection<Variables: Value1Param> {
     
-    public typealias Field = SelectionField<[String: Value1<Variables>], ResolvedSelection>
+    public typealias Field = SelectionField<[String: Value1<Variables>], ResolvedSelection, `Type`>
     /// Map from the key of the field as it will appear in the result payload, to the field
     public let fields: [ObjectKey: Field]
     

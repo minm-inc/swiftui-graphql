@@ -68,7 +68,8 @@ struct Codegen: AsyncParsableCommand {
         let enumerator = FileManager.default.enumerator(at: projectDirectory, includingPropertiesForKeys: [.isDirectoryKey], options: .skipsHiddenFiles)!
         
         var definitions: [FragmentDefinition] = []
-        for case let fileURL as URL in enumerator {
+        // Note: Don't bother collecting global fragments from the current input file
+        for case let fileURL as URL in enumerator where fileURL != URL(fileURLWithPath: input) {
             let isDirectory = try fileURL.resourceValues(forKeys: [.isDirectoryKey]).isDirectory
             if let isDirectory = isDirectory, isDirectory { continue }
             if fileURL.pathExtension == "graphql" {
@@ -108,14 +109,20 @@ struct Codegen: AsyncParsableCommand {
         
         let document = try parse(contents: String(contentsOfFile: input), filename: input)
         
-        let validationErrors = GraphQL.validate(schema: schema, ast: document)
+        let globalFragments = try collectGlobalFragmentDefinitions(schema: schema)
+        
+        // Need to validate document as if all the other global fragments were in it
+        var documentWithGlobalFragments = document
+        documentWithGlobalFragments.definitions += globalFragments.map { .executableDefinition(.fragment($0)) }
+        
+        let validationErrors = GraphQL.validate(schema: schema, ast: documentWithGlobalFragments)
         if !validationErrors.isEmpty {
             validationErrors.forEach(printXcodeError)
             Foundation.exit(1)
         }
         
         var output = FileOutputStream(path: output)
-        generateCode(document: document, schema: schema, globalFragments: try collectGlobalFragmentDefinitions(schema: schema))
+        generateCode(document: document, schema: schema, globalFragments: globalFragments)
             .write(to: &output)
     }
     

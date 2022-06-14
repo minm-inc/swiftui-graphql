@@ -1,26 +1,21 @@
-//
-//  SwiftGen.swift
-//  
-//
-//  Created by Luke Lau on 23/12/2021.
-//
-
 import SwiftSyntax
 import OrderedCollections
 
+/// Lowers ``Decl`` into SwiftSyntax
 class SwiftGen {
     private var indentationLevel = 0
     
     func gen(decl: Decl) -> DeclSyntax {
         switch decl {
-        case let .let(name, type, initializer, accessor, isStatic):
+        case let .let(name, type, initializer, accessor, isStatic, access):
             return DeclSyntax(
                 genVariableDecl(
                     identifier: name,
                     type: type.map(gen(type:)),
                     initializer: initializer.map(gen),
                     accessor: accessor,
-                    isStatic: isStatic
+                    isStatic: isStatic,
+                    access: access
                 )
             ).withTrailingTrivia(.newlines(1))
         case let .struct(name, decls, conforms):
@@ -164,7 +159,7 @@ class SwiftGen {
     
     private func genStruct(name: String, decls: [Decl], conforms: [String]) -> StructDeclSyntax {
         StructDeclSyntax {
-            $0.addModifier(publicModifier.withLeadingTrivia(.spaces(indentationLevel)))
+            $0.addModifier(genAccess(.public).withTrailingTrivia(.spaces(1)).withLeadingTrivia(.spaces(indentationLevel)))
             $0.useStructKeyword(
                 SyntaxFactory.makeStructKeyword(trailingTrivia: .spaces(1))
             )
@@ -176,7 +171,7 @@ class SwiftGen {
     
     private func genEnum(name: String, cases: [Decl.Case], decls: [Decl], conforms: [String], defaultCase: Decl.Case?, genericParameters: [Decl.GenericParameter]) -> EnumDeclSyntax {
         EnumDeclSyntax {
-            $0.addModifier(publicModifier.withLeadingTrivia(.spaces(indentationLevel)))
+            $0.addModifier(genAccess(.public).withTrailingTrivia(.spaces(1)))
             $0.useEnumKeyword(
                 SyntaxFactory.makeEnumKeyword(trailingTrivia: .spaces(1))
             )
@@ -219,7 +214,7 @@ class SwiftGen {
                     }
                 }
             })
-        }
+        }.withLeadingTrivia(.spaces(indentationLevel))
     }
     
     private func gen(_ `case`: Decl.Case) -> EnumCaseDeclSyntax {
@@ -270,7 +265,7 @@ class SwiftGen {
     
     private func genProtocol(name: String, conforms: [String], whereClauses: [Decl.WhereClause], decls: [Decl]) -> ProtocolDeclSyntax {
         ProtocolDeclSyntax {
-            $0.addModifier(publicModifier.withLeadingTrivia(.spaces(indentationLevel)))
+            $0.addModifier(genAccess(.public).withTrailingTrivia(.spaces(1)))
             $0.useProtocolKeyword(
                 SyntaxFactory.makeProtocolKeyword(trailingTrivia: .spaces(1))
             )
@@ -295,7 +290,7 @@ class SwiftGen {
                 })
             }
             $0.useMembers(genMemberDeclBlockSyntax(decls: decls))
-        }
+        }.withLeadingTrivia(.spaces(indentationLevel))
     }
     
     private func genMemberDeclBlockSyntax(decls: [Decl]) -> MemberDeclBlockSyntax {
@@ -393,10 +388,12 @@ class SwiftGen {
         }.withTrailingTrivia(.newlines(1))
     }
     
-    private func genVariableDecl(identifier: String, type: TypeSyntax?, initializer: ExprSyntax?, accessor: Decl.LetAccessor, isStatic: Bool) -> DeclSyntax {
+    private func genVariableDecl(identifier: String, type: TypeSyntax?, initializer: ExprSyntax?, accessor: Decl.LetAccessor, isStatic: Bool, access: Decl.Access?) -> DeclSyntax {
         DeclSyntax(
             VariableDeclSyntax {
-                $0.addModifier(publicModifier)
+                if let access {
+                    $0.addModifier(genAccess(access).withTrailingTrivia(.spaces(1)))
+                }
                 let letOrVarKeyword: TokenSyntax
                 switch accessor {
                 case .let:
@@ -579,15 +576,10 @@ class SwiftGen {
         }
     }
     
-    private func genFunc(name: String, parameters: [Decl.Parameter], throws: Decl.Throws?, returnType: TypeSyntax?, body: (() -> [Syntax])?, access: Decl.FuncAccess?) -> FunctionDeclSyntax {
+    private func genFunc(name: String, parameters: [Decl.Parameter], throws: Decl.Throws?, returnType: TypeSyntax?, body: (() -> [Syntax])?, access: Decl.Access?) -> FunctionDeclSyntax {
         FunctionDeclSyntax {
-            if let access = access {
-                $0.addModifier(DeclModifierSyntax {
-                    switch access {
-                    case .fileprivate:
-                        $0.useName(SyntaxFactory.makeFileprivateKeyword())
-                    }
-                }.withTrailingTrivia(.spaces(1)))
+            if let access {
+                $0.addModifier(genAccess(access).withTrailingTrivia(.spaces(1)))
             }
             $0.useFuncKeyword(
                 SyntaxFactory.makeFuncKeyword()
@@ -614,7 +606,7 @@ class SwiftGen {
     
     private func genInit(parameters: [Decl.Parameter], throws: Decl.Throws?, body: (() -> [Syntax])?) -> InitializerDeclSyntax {
         InitializerDeclSyntax {
-            $0.addModifier(publicModifier)
+            $0.addModifier(genAccess(.public).withTrailingTrivia(.spaces(1)))
             $0.useInitKeyword(SyntaxFactory.makeInitKeyword())
             $0.useParameters(gen(parameters: parameters).withTrailingTrivia(.spaces(1)))
             if let `throws` = `throws` {
@@ -790,9 +782,14 @@ class SwiftGen {
         }
     }
     
-    private var publicModifier: DeclModifierSyntax {
+    private func genAccess(_ access: Decl.Access) -> DeclModifierSyntax {
         DeclModifierSyntax {
-            $0.useName(SyntaxFactory.makePublicKeyword(trailingTrivia: .spaces(1)))
+            switch access {
+            case .fileprivate:
+                $0.useName(SyntaxFactory.makeFileprivateKeyword())
+            case .public:
+                $0.useName(SyntaxFactory.makePublicKeyword())
+            }
         }
     }
     

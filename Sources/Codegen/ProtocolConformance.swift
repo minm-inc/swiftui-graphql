@@ -1,97 +1,244 @@
 import OrderedCollections
+import GraphQL
 import SwiftUIGraphQL
-class ProtocolConformance {
-    let name: String
-    var inherits: [ProtocolConformance]
+
+/// For each protocol generated in Swift, this represents a graph of protocol inheritance hierarchies
+///
+/// Note that this is **not** specific to fragment protocols, but the graph is indeed initially constructed from fragments
+class ProtocolConformance: Equatable {
+    private(set) var inherits: [ProtocolConformance]
+    private var inheritors: [ProtocolConformance] = []
     
-    private init(name: String, inherits: [ProtocolConformance] = []) {
-        self.name = name
+    let type: ProtocolType
+    enum ProtocolType {
+        case plain(String)
+        case fragment(FragmentProtocolPath)
+    }
+    
+    var name: String {
+        switch type {
+        case .plain(let name): return name
+        case .fragment(let path): return path.protocolName
+        }
+    }
+    
+    /// Every protocol this inherits, and everything they inherit etc.
+    var ancestors: [ProtocolConformance] {
+        inherits + inherits.flatMap(\.inherits)
+    }
+    
+    init(type: ProtocolType, inherits: [ProtocolConformance] = []) {
+        self.type = type
         self.inherits = inherits
     }
+    
+    var description: String {
+        "\(name): \(inherits.map(\.name).joined(separator: ", "))"
+    }
 
-    private func conforms(to x: ProtocolConformance) -> ProtocolConformance? {
-        if x.name == name { return self }
+    func conforms(to x: ProtocolConformance) -> Bool {
+        if x.name == name { return true }
         for y in inherits {
-            if let res = y.conforms(to: x) {
-                return res
+            if y.conforms(to: x) {
+                return true
             }
         }
-        return nil
+        return false
     }
     
-    private func inherit(_ x: ProtocolConformance) {
-        if conforms(to: x) == nil {
-            inherits.append(x)
+    func inherit(_ x: ProtocolConformance) {
+        guard !conforms(to: x) else { return }
+        inherits.append(x)
+        x.inheritors.append(self)
+        // Remove any inheritances made redundant now
+        inherits = inherits.filter { existing in
+            existing === x || !existing.conforms(to: x)
+        }
+        
+        // Remove any inheritances that x now supercedes
+        inherits = inherits.filter { existing in
+            existing === x || !x.conforms(to: existing)
+        }
+        
+        inheritors.forEach { $0.uninheritUpwards(x) }
+        assert(!conainsRedundantInherits)
+    }
+    
+    private func uninheritUpwards(_ x: ProtocolConformance) {
+        inherits = inherits.filter { $0 != x }
+        x.inheritors.removeAll { $0 == self }
+        inheritors.forEach { $0.uninheritUpwards(x) }
+    }
+    
+    static private func newSelections(for object: MergedObject, withPath path: FragmentProtocolPath) -> [(FragmentProtocolPath, MergedObject.Selection)] {
+        [(path, object.unconditional)] + object.conditional.map { type, selection in
+            (path.appendingTypeDiscrimination(type: type.type), selection)
         }
     }
     
-    static func buildConformanceGraph(fragmentSelections: [String: MergedSelection]) -> [FragmentPath: ProtocolConformance] {
-        var stack = fragmentSelections.map { (FragmentPath(fragmentName: $0.0), $0.1) }
+    private typealias InheritanceMap = [FragmentProtocolPath: OrderedSet<FragmentProtocolPath>]
+    private typealias ObjectMap = [FragmentProtocolPath: MergedObject]
+    
+    private static func buildInheritanceMap(fragmentObjects: [String: MergedObject], schema: GraphQLSchema) -> (InheritanceMap, ObjectMap) {
+        var inheritanceMap: InheritanceMap = [:]
+        var objectMap: ObjectMap = [:]
         
-        var order: OrderedSet<FragmentPath> = []
-        var selectionMap: [FragmentPath: MergedSelection] = [:]
-        
-        while let (path, selection) = stack.popLast() {
-            if let path = order.remove(path) {
-                order.append(path)
+        func insertInheritance(path: FragmentProtocolPath, inherits: FragmentProtocolPath) {
+            if inheritanceMap.keys.contains(path) {
+                inheritanceMap[path]!.append(inherits)
             } else {
-                order.append(path)
+                inheritanceMap[path] = [inherits]
             }
-            selectionMap[path] = selection
-            stack += selection.fragmentConformances.map {
-                (FragmentPath(fragmentName: $0), fragmentSelections[$0]!)
+        }
+        
+        for (fragmentName, fragmentObject) in fragmentObjects {
+            let path = FragmentProtocolPath(fragmentName: fragmentName, fragmentObject: fragmentObject)
+            go(path: path, object: fragmentObject)
+        }
+        
+        func go(path: FragmentProtocolPath, object: MergedObject) {
+            objectMap[path] = object
+            if inheritanceMap[path] == nil {
+                inheritanceMap[path] = []
             }
-            stack += selection.fields.compactMap {
-                if let nested = $0.value.nested {
-                    return (path.appending(nestedObject: $0.key.firstUppercased), nested)
-                } else {
-                    return nil
+
+            // First process the descendants
+            for (key, field) in object.unconditional.fields {
+                if let nested = field.nested {
+                    go(path: path.appendingNestedObject(nested, withKey: key), object: nested)
                 }
             }
-            stack += selection.conditionals.map {
-                (path.appending(nestedObject: $0.key), $0.value)
+            
+            for (type, selection) in object.conditional {
+                let typeDiscrimPath = path.appendingTypeDiscrimination(type: type.type)
+                objectMap[typeDiscrimPath] = object
+                if inheritanceMap[typeDiscrimPath] == nil {
+                    inheritanceMap[typeDiscrimPath] = []
+                }
+                for (key, field) in selection.fields {
+                    if let nested = field.nested {
+                        go(path: typeDiscrimPath.appendingNestedObject(nested, withKey: key), object: nested)
+                    }
+                }
+            }
+            
+            // Now decorate all the paths added here with fragment conformances
+            for (fragmentName, conformance) in object.fragmentConformances {
+                switch conformance {
+                case .unconditional:
+                    nestedInheritancesFor(xPath: path,
+                                          xObject: object,
+                                          inheritName: fragmentName,
+                                          inheritObject: fragmentObjects[fragmentName]!,
+                                          schema: schema)
+                        .forEach(insertInheritance(path:inherits:))
+                case .conditional(_):
+                    // TODO: Handle this?
+                    break
+                }
             }
         }
+        return (inheritanceMap, objectMap)
+    }
+    
+    private static func nestedInheritancesFor(xPath xStartPath: FragmentProtocolPath, xObject: MergedObject, inheritName: String, inheritObject: MergedObject, schema: GraphQLSchema) -> [FragmentProtocolPath: FragmentProtocolPath] {
+        let inheritStartPath = FragmentProtocolPath(fragmentName: inheritName, fragmentObject: inheritObject)
+        var queue = [(xStartPath, xObject, inheritStartPath, inheritObject)]
+        var res: [FragmentProtocolPath: FragmentProtocolPath] = [:]
         
-        var res: [FragmentPath: ProtocolConformance] = [:]
-        for path in order.reversed() {
-            let selection = selectionMap[path]!
-            let conformance = ProtocolConformance(
-                name: protocolName(for: path, selection: selection)
-            )
+        while let (path, object, inheritPath, inheritObject) = queue.popLast() {
+            res[path] = inheritPath
             
-            let inherited = selection.fragmentConformances.map { res[FragmentPath(fragmentName: $0)]! }
-                + baseConformances(for: selection.fields)
-            inherited.forEach { conformance.inherit($0) }
-            res[path] = conformance
+            var selections = [(path, object.unconditional, inheritPath, inheritObject.unconditional)]
+            
+            for (inheritType, inheritSelection) in inheritObject.conditional {
+                for (type, selection) in object.conditional where schema.isSubType(abstractType: inheritType.type, maybeSubType: type.type) {
+                    res[path.appendingTypeDiscrimination(type: type.type)] = inheritPath.appendingTypeDiscrimination(type: type.type)
+                    selections.append((
+                        path.appendingTypeDiscrimination(type: type.type),
+                        selection,
+                        inheritPath.appendingTypeDiscrimination(type: type.type),
+                        inheritSelection
+                    ))
+                }
+            }
+            
+            for (objectPath, objectSelection, inheritPath, inheritSelection) in selections {
+                for (key, field) in inheritSelection.fields {
+                    if let inheritNested = field.nested, let objectField = objectSelection.fields[key] {
+                        guard let nested = objectField.nested else {
+                            fatalError("There should also be a nested field on this object if the fragment object has a nested field")
+                        }
+                        queue.append((
+                            objectPath.appendingNestedObject(nested, withKey: key),
+                            nested,
+                            inheritPath.appendingNestedObject(nested, withKey: key),
+                            inheritNested
+                        ))
+                    }
+                }
+            }
         }
         
         return res
     }
     
-    /// If the resulting fragment is polymorphic, this gives the name for the container protocol, e.g. `ContainsFooFragment`,
-    /// otherwise just `FooFragmentAndNestedObjects`
-    private static func protocolName(for path: FragmentPath, selection: MergedSelection) -> String {
-        if selection.conditionals.isEmpty {
-            return path.fullyQualifiedName
-        } else {
-            return "Contains" + path.fullyQualifiedName
+    private static func orderInheritanceMap(_ inheritanceMap: InheritanceMap) -> some Sequence<FragmentProtocolPath> {
+        var stack: [(FragmentProtocolPath, OrderedSet<FragmentProtocolPath>)] = Array(inheritanceMap)
+        var order: OrderedSet<FragmentProtocolPath> = []
+        while let (path, inherits) = stack.popLast() {
+            order.appendOrPlaceLast(path)
+            stack += inherits.map { ($0, inheritanceMap[$0]!) }
         }
+        return order
+    }
+    
+    static func buildConformanceGraph(fragmentObjects: [String: MergedObject], schema: GraphQLSchema) -> [FragmentProtocolPath: ProtocolConformance] {
+        let (inheritanceMap, objectMap) = buildInheritanceMap(fragmentObjects: fragmentObjects, schema: schema)
+        var res: [FragmentProtocolPath: ProtocolConformance] = [:]
+        for path in orderInheritanceMap(inheritanceMap).reversed() {
+            let conformance = ProtocolConformance(type: .fragment(path))
+            inheritanceMap[path]!.map { res[$0]! }.forEach(conformance.inherit(_:))
+            baseConformances(for: objectMap[path]!.unconditional.fields).forEach(conformance.inherit(_:))
+            res[path] = conformance
+        }
+        return res
     }
     
     private static let cacheable = ProtocolConformance(
-        name: "Cacheable",
+        type: .plain("Cacheable"),
         inherits: [codable, hashable]
     )
-    private static let codable = ProtocolConformance(name: "Codable")
-    private static let hashable = ProtocolConformance(name: "Hashable")
+    private static let codable = ProtocolConformance(type: .plain("Codable"))
+    private static let hashable = ProtocolConformance(type: .plain("Hashable"))
     
     /// The base protocol conformances that an object with the given set of fields will conform to
-    static func baseConformances<T, U>(for fields: OrderedDictionary<String, SelectionField<T, U>>) -> [ProtocolConformance] {
-        if let field = fields["id"], field.name == "id", case .nonNull(.named("ID")) = field.type {
+    static func baseConformances<T, U>(for fields: OrderedDictionary<String, SelectionField<T, U, any GraphQLOutputType>>) -> [ProtocolConformance] {
+        if let field = fields["id"], field.name == "id", case .nonNull(.named("ID")) = graphqlTypeToSwiftUIGraphQLType(field.type) {
             return [.cacheable]
         } else {
             return [.codable, .hashable]
         }
+    }
+    
+    static func == (lhs: ProtocolConformance, rhs: ProtocolConformance) -> Bool {
+        lhs === rhs
+    }
+    
+    private var conainsRedundantInherits: Bool {
+        for inherit in inherits {
+            let others = inherits.filter { $0 !== inherit }
+            if others.contains(where: { $0.conforms(to: inherit) }) {
+                return true
+            }
+        }
+        return false
+    }
+}
+
+fileprivate extension OrderedSet {
+    mutating func appendOrPlaceLast(_ element: Element) {
+        remove(element)
+        append(element)
     }
 }

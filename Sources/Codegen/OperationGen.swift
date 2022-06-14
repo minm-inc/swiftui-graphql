@@ -16,9 +16,19 @@ func attach(operation: OperationDefinition, to decl: Decl, schema: GraphQLSchema
                 initializer: varDef.defaultValue.map(convertToExpr)
             )
         }
+        let initializer = Decl.`init`(
+            parameters: operation.variableDefinitions.map {
+                Decl.Parameter($0.variable.name.value,
+                               type: genType(for: typeFromAST(schema: schema,
+                                                              inputTypeAST: $0.type)!))
+            },
+            body: operation.variableDefinitions.map(\.variable.name.value).map {
+                .assignment(lhs: .`self`.access($0), rhs: .identifier($0))
+            }
+        )
         extraDecls.append(.struct(
             name: "Variables",
-            decls: variableDecls,
+            decls: [initializer] + variableDecls,
             conforms: ["Encodable", "Equatable"]
         ))
     }
@@ -32,7 +42,8 @@ func attach(operation: OperationDefinition, to decl: Decl, schema: GraphQLSchema
     extraDecls.append(.`let`(
         name: "query",
         initializer: .stringLiteral(queryString, multiline: true),
-        isStatic: true
+        isStatic: true,
+        access: .public
     ))
     
     return .struct(

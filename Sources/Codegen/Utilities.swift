@@ -2,24 +2,30 @@ import GraphQL
 import OrderedCollections
 import SwiftUIGraphQL
 
-func underlyingType(_ type: GraphQLType) -> GraphQLNamedType {
+extension GraphQLType {
+    var underlyingType: any GraphQLNamedType {
+        Codegen.underlyingType(self)
+    }
+}
+
+func underlyingType(_ type: any GraphQLType) -> any GraphQLNamedType {
     if let type = type as? GraphQLList {
         return underlyingType(type.ofType)
     } else if let type = type as? GraphQLNonNull {
         return underlyingType(type.ofType)
-    } else if let type = type as? GraphQLNamedType {
+    } else if let type = type as? (any GraphQLNamedType) {
         return type
     } else {
         fatalError("Don't understand how to get the underlying type of \(type)")
     }
 }
 
-func replaceUnderlyingType(_ type: GraphQLType, with newType: GraphQLType) -> GraphQLType {
+func replaceUnderlyingType(_ type: any GraphQLType, with newType: any GraphQLType) -> any GraphQLType {
     switch type {
     case let type as GraphQLList:
         return GraphQLList(replaceUnderlyingType(type.ofType, with: newType))
     case let type as GraphQLNonNull:
-        return GraphQLNonNull(replaceUnderlyingType(type.ofType, with: newType) as! GraphQLNullableType)
+        return GraphQLNonNull(replaceUnderlyingType(type.ofType, with: newType) as! (any GraphQLNullableType))
     default:
         return newType
     }
@@ -87,4 +93,20 @@ extension SwiftUIGraphQL.NonNullType {
 extension String {
     var firstUppercased: String { prefix(1).uppercased() + dropFirst() }
     var firstLowercased: String { prefix(1).lowercased() + dropFirst() }
+}
+
+/// A not-so-type-erasing wrapper that allows us to use `any GraphQLCompositeType` as a key in a dictionary etc.
+class AnyGraphQLCompositeType: Hashable {
+    let type: any GraphQLCompositeType
+    init(_ x: any GraphQLCompositeType) {
+        self.type = x
+    }
+    
+    func hash(into hasher: inout Hasher) {
+        type.hash(into: &hasher)
+    }
+    
+    static func == (lhs: AnyGraphQLCompositeType, rhs: AnyGraphQLCompositeType) -> Bool {
+        lhs.type === rhs.type
+    }
 }

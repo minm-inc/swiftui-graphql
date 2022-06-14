@@ -17,7 +17,8 @@ enum Decl: Equatable {
         type: DeclType? = nil,
         initializer: Expr? = nil,
         accessor: LetAccessor = .let,
-        isStatic: Bool = false
+        isStatic: Bool = false,
+        access: Access? = nil
     )
     enum LetAccessor: Equatable {
         case `let`
@@ -26,10 +27,11 @@ enum Decl: Equatable {
     }
     case `protocol`(name: String, conforms: [String], whereClauses: [WhereClause], decls: [Decl])
     case `associatedtype`(name: String, inherits: String)
-    case `func`(name: String, parameters: [Parameter] = [], `throws`: Throws? = nil, returnType: DeclType? = nil, body: [Syntax]?, access: FuncAccess? = nil)
+    case `func`(name: String, parameters: [Parameter] = [], `throws`: Throws? = nil, returnType: DeclType? = nil, body: [Syntax]?, access: Access? = nil)
     
-    enum FuncAccess: Equatable {
+    enum Access: Equatable {
         case `fileprivate`
+        case `public`
     }
     
     case `init`(parameters: [Parameter] = [], `throws`: Throws? = nil, body: [Syntax]?)

@@ -1,12 +1,4 @@
-//
-//  Cacheable.swift
-//  
-//
-//  Created by Luke Lau on 10/12/2021.
-//
-
 import GraphQL
-import Foundation
 
 /**
  In order to cache objects that are returned from any queries, we need to know the `id` and `__typename` fields to any object that has an `id`.
@@ -61,7 +53,7 @@ public func attachCacheableFields(schema: GraphQLSchema, document: Document) -> 
 }
 
 
-func isCacheable(type: GraphQLType) -> Bool {
+func isCacheable(type: any GraphQLType) -> Bool {
     let fields: GraphQLFieldDefinitionMap
     if let type = type as? GraphQLObjectType {
         fields = type.fields

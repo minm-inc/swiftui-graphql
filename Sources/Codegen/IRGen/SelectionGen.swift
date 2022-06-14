@@ -1,7 +1,7 @@
 import OrderedCollections
 import SwiftUIGraphQL
 
-func genResolvedSelectionDecl(fields: OrderedDictionary<String, MergedSelection.Field>, cases: OrderedDictionary<String, MergedSelection>) -> Decl {
+func genResolvedSelectionDecl(fields: OrderedDictionary<String, MergedObject.Selection.Field>, cases: OrderedSet<AnyGraphQLCompositeType>) -> Decl {
     .`let`(
         name: "selection",
         type: .named("ResolvedSelection", genericArguments: [.named("String")]),
@@ -10,19 +10,20 @@ func genResolvedSelectionDecl(fields: OrderedDictionary<String, MergedSelection.
             args: [
                 .named("fields", gen(dictForFields: fields)),
                 .named("conditional", .dictionary(
-                    cases.reduce(into: [:]) { acc, x in
-                        acc[.stringLiteral(x.key)] = .identifier(x.key.firstUppercased)
+                    cases.map(\.type.name).reduce(into: [:]) { acc, x in
+                        acc[.stringLiteral(x)] = .identifier(x.firstUppercased)
                             .access("selection")
                             .access("fields")
                     }
                 ))
             ]
         ),
-        isStatic: true
+        isStatic: true,
+        access: .public
     )
 }
 
-private func gen(dictForFields fields: OrderedDictionary<String, MergedSelection.Field>) -> Expr {
+private func gen(dictForFields fields: OrderedDictionary<String, MergedObject.Selection.Field>) -> Expr {
     .dictionary(
         fields.reduce(into: [:]) { acc, x in
             let (key, field) = x
@@ -41,7 +42,7 @@ private func gen(dictForFields fields: OrderedDictionary<String, MergedSelection
                             $0[Expr.stringLiteral($1.key)] = genValueExpr(value: $1.value)
                         }
                     )),
-                    .named("type", genTypeExpr(type: field.type)),
+                    .named("type", genTypeExpr(type: graphqlTypeToSwiftUIGraphQLType(field.type))),
                     .named("nested", nestedExpr)
                 ]
             )

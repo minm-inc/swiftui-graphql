@@ -66,12 +66,18 @@ public func generateCode(document rawDocument: Document, schema: GraphQLSchema, 
             decls.append(operationDecl)
         case let .executableDefinition(.fragment(def)):
             let fragmentName = def.name.value
-            var mergedSelection = fragmentInfo.selections[fragmentName]!
-            decls += gen(fragment: mergedSelection, named: fragmentName, fragmentInfo: fragmentInfo)
+            var object = fragmentInfo.objects[fragmentName]!
+            decls += gen(fragment: object, named: fragmentName, fragmentInfo: fragmentInfo)
             
             // Generate a concrete object definition for the fragment, useful for constructing dummy values of the fragment for testing and design time
-            mergedSelection.fragmentConformances.append(fragmentName)
-            decls.append(gen(object: mergedSelection, named: "__\(def.name.value)Fragment", typename: def.typeCondition.name.value, fragmentInfo: fragmentInfo))
+            object.fragmentConformances[fragmentName] = .unconditional
+            decls.append(gen(
+                object: object,
+                named: "__\(def.name.value)Fragment",
+                type: schema.getType(name: def.typeCondition.name.value)! as! (any GraphQLCompositeType),
+                fragmentInfo: fragmentInfo,
+                schema: schema
+            ))
         default:
             break
         }
@@ -113,11 +119,11 @@ public func generateCode(document rawDocument: Document, schema: GraphQLSchema, 
 private func gen(operation def: OperationDefinition, schema: GraphQLSchema, fragmentInfo: FragmentInfo) -> Decl {
     let parentType = operationRootType(for: def.operation, schema: schema)
     let unresolvedSelections = makeUnmergedSelections(selectionSet: def.selectionSet, parentType: parentType, schema: schema, fragments: fragmentInfo.definitions)
-    let mergedSelection = merge(unmergedSelections: unresolvedSelections, type: parentType, schema: schema)
+    let object = merge(unmergedSelections: unresolvedSelections, type: parentType, schema: schema)
     
     let name = (def.name?.value.firstUppercased ?? "Anonymous") + operationSuffix(for: def.operation)
     
-    return gen(object: mergedSelection, named: name, typename: parentType.name, fragmentInfo: fragmentInfo)
+    return gen(object: object, named: name, type: parentType, fragmentInfo: fragmentInfo, schema: schema)
 }
 
 private func operationSuffix(for type: OperationType) -> String {

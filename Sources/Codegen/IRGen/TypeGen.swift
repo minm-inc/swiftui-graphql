@@ -1,8 +1,8 @@
 import GraphQL
 import SwiftUIGraphQL
 
-func genType(for graphqlType: GraphQLType) -> DeclType {
-    func go(type: GraphQLType, addOptional: Bool) -> DeclType {
+func genType(for graphqlType: any GraphQLType) -> DeclType {
+    func go(type: any GraphQLType, addOptional: Bool) -> DeclType {
         func wrapOptional(_ x: DeclType) -> DeclType {
             if addOptional {
                 return .optional(x)
@@ -18,7 +18,7 @@ func genType(for graphqlType: GraphQLType) -> DeclType {
             )
         case let type as GraphQLNonNull:
             return go(type: type.ofType, addOptional: false)
-        case let type as GraphQLNamedType:
+        case let type as any GraphQLNamedType:
             if let scalar = type as? GraphQLScalarType {
                 return wrapOptional(.named(genTypeName(forScalar: scalar)))
             } else {
@@ -63,9 +63,9 @@ func genType(for type: SwiftUIGraphQL.`Type`) -> DeclType {
 }
 
 
-func graphqlTypeToSwiftUIGraphQLType(_ type: GraphQLType) -> SwiftUIGraphQL.`Type` {
+func graphqlTypeToSwiftUIGraphQLType(_ type: any GraphQLType) -> SwiftUIGraphQL.`Type` {
     switch type {
-    case let type as GraphQLNamedType:
+    case let type as any GraphQLNamedType:
         if let scalar = type as? GraphQLScalarType {
             return .named(genTypeName(forScalar: scalar))
         } else {
@@ -80,9 +80,9 @@ func graphqlTypeToSwiftUIGraphQLType(_ type: GraphQLType) -> SwiftUIGraphQL.`Typ
     }
 }
 
-private func graphqlTypeToSwiftUIGraphQLNonNullType(_ type: GraphQLNullableType) -> SwiftUIGraphQL.NonNullType {
+private func graphqlTypeToSwiftUIGraphQLNonNullType(_ type: any GraphQLNullableType) -> SwiftUIGraphQL.NonNullType {
     switch type {
-    case let type as GraphQLNamedType:
+    case let type as any GraphQLNamedType:
         if let scalar = type as? GraphQLScalarType {
             return .named(genTypeName(forScalar: scalar))
         } else {
@@ -94,13 +94,17 @@ private func graphqlTypeToSwiftUIGraphQLNonNullType(_ type: GraphQLNullableType)
 }
     
 private func genTypeName(forScalar type: GraphQLScalarType) -> String {
-    switch type.name {
-    case "Boolean":
+    switch type {
+    case GraphQLBoolean:
         return "Bool"
-    case "Float":
+    case GraphQLFloat:
         return "Double"
-    case "Int", "String", "ID":
-        return type.name
+    case GraphQLInt:
+        return "Int"
+    case GraphQLString:
+        return "String"
+    case GraphQLID:
+        return "ID"
     default:
         if let specifiedByURL = type.specifiedByURL,
            let foundationScalar = foundationScalars[specifiedByURL] {

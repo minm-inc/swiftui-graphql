@@ -1,27 +1,36 @@
 import SwiftSyntax
+import GraphQL
 import OrderedCollections
 import SwiftUIGraphQL
 
-func gen(fragment: MergedSelection, named name: String, fragmentInfo: FragmentInfo) -> [Decl] {
-    let following = fragment.fragmentConformances.map {
-        (FragmentPath(fragmentName: $0), fragmentInfo.selections[$0]!)
+func gen(fragment: MergedObject, named name: String, fragmentInfo: FragmentInfo) -> [Decl] {
+    let following = fragment.fragmentConformances.keys.map { name in
+        let obj = fragmentInfo.objects[name]!
+        return (FragmentProtocolPath(fragmentName: name, fragmentObject: obj), obj)
     }
-    let fragProto = FragProtoGenerator(fragmentInfo: fragmentInfo)
-        .gen(fragProtoFor: fragment, following: following, currentPath: FragmentPath(fragmentName: name))
+    let fragProto = FragProtoGenerator(fragmentObjectMap: fragmentInfo.objects,
+                                       fragmentConformanceGraph: fragmentInfo.conformanceGraph)
+        .gen(fragProtoFor: fragment, following: following, currentPath: FragmentProtocolPath(fragmentName: name, fragmentObject: fragment))
     return gen(fragProto: fragProto, named: name, fragmentInfo: fragmentInfo)
 }
 
 enum FragProto {
-    case monomorphic(path: FragmentPath, fields: OrderedDictionary<String, Field>, conformance: ProtocolConformance)
-    case polymorphic(path: FragmentPath, fields: OrderedDictionary<String, Field>, cases: OrderedDictionary<String, Case>, conformance: ProtocolConformance)
+    case proto(Proto)
+    case container(path: FragmentProtocolPath, fields: OrderedDictionary<String, Field>, cases: OrderedDictionary<AnyGraphQLCompositeType, Case>, conformance: ProtocolConformance)
+    
+    struct Proto {
+        let path: FragmentProtocolPath
+        let fields: OrderedDictionary<String, Field>
+        let conformance: ProtocolConformance
+    }
     
     enum Field {
-        case variableGetter(name: String, type: `Type`, object: FragProto?)
+        case variableGetter(name: String, type: any GraphQLOutputType, object: FragProto?)
         case whereClause(FragProto)
     }
     
     struct Case {
-        let fragProto: FragProto
+        let proto: Proto
         let type: CaseType
         enum CaseType {
             case associatedType
@@ -31,36 +40,80 @@ enum FragProto {
     
     var conformance: ProtocolConformance {
         switch self {
-        case .monomorphic(_, _, let conformance):
-            return conformance
-        case .polymorphic(_, _, _, let conformance):
+        case .proto(let proto):
+            return proto.conformance
+        case .container(_, _, _, let conformance):
             return conformance
         }
     }
 }
 
-private class FragProtoGenerator {
-    let fragmentInfo: FragmentInfo
+class FragProtoGenerator {
+    let fragmentObjectMap: [String: MergedObject]
+    let fragmentConformanceGraph: [FragmentProtocolPath: ProtocolConformance]
     
-    init(fragmentInfo: FragmentInfo) {
-        self.fragmentInfo = fragmentInfo
+    init(fragmentObjectMap: [String: MergedObject], fragmentConformanceGraph: [FragmentProtocolPath: ProtocolConformance]) {
+        self.fragmentObjectMap = fragmentObjectMap
+        self.fragmentConformanceGraph = fragmentConformanceGraph
     }
     
-    func gen(fragProtoFor object: MergedSelection, following fragmentObjects: [(FragmentPath, MergedSelection)], currentPath: FragmentPath) -> FragProto {
-        let fields: OrderedDictionary<String, FragProto.Field> = object.fields.reduce(into: [:]) { acc, x in
-            let (key, field) = x
-            let shadowed = object.fragmentConformances.contains {
-                fragmentInfo.selections[$0]!.selectedKeys().contains(key)
+    func gen(fragProtoFor object: MergedObject, following fragmentObjects: [(FragmentProtocolPath, MergedObject)], currentPath: FragmentProtocolPath) -> FragProto {
+        
+        let fragmentObjects = fragmentObjects + object.fragmentConformances.compactMap { name, conformance in
+            if conformance == .unconditional {
+                let obj = fragmentObjectMap[name]!
+                return (FragmentProtocolPath(fragmentName: name, fragmentObject: obj), obj)
+            } else {
+                return nil
             }
-            let nestedFragmentObjects: [(FragmentPath, MergedSelection)] =
+        }
+        
+        let unconditionalProto = gen(protoFor: object.unconditional, following: fragmentObjects, currentPath: currentPath)
+        if object.isMonomorphic {
+            return .proto(unconditionalProto)
+        } else {
+            // If the fragment is polymorphic, then the protocol becomes a container `ContainsFooFragment`
+            let cases: OrderedDictionary<AnyGraphQLCompositeType, FragProto.Case> = object.conditional.reduce(into: [:]) { acc, x in
+                let (typeCondition, selection) = x
+                let proto = gen(protoFor: selection,
+                                following: fragmentObjects,
+                                currentPath:  currentPath.appendingTypeDiscrimination(type: typeCondition.type))
+                acc[typeCondition] = FragProto.Case(
+                    proto: proto,
+                    type: isShadowed(type: typeCondition, in: object) ?
+                            .whereClause : .associatedType
+                )
+            }
+            return .container(path: currentPath, fields: unconditionalProto.fields, cases: cases, conformance: unconditionalProto.conformance)
+        }
+    }
+    
+    private func isShadowed(type: AnyGraphQLCompositeType, in object: MergedObject) -> Bool {
+        object.fragmentConformances.contains {
+           switch $0.value {
+           case .unconditional:
+               return fragmentObjectMap[$0.key]!.conditional.keys.contains(type)
+           case .conditional:
+               return false
+           }
+       }
+    }
+    
+    private func gen(protoFor selection: MergedObject.Selection, following fragmentObjects: [(FragmentProtocolPath, MergedObject)], currentPath: FragmentProtocolPath) -> FragProto.Proto {
+        let fields: OrderedDictionary<String, FragProto.Field> = selection.fields.reduce(into: [:]) { acc, x in
+            let (key, field) = x
+            let shadowed = fragmentObjects.contains { (fragPath, fragObj) in
+                fragObj.selectedKeys().contains(key)
+            }
+            let nestedFragmentObjects: [(FragmentProtocolPath, MergedObject)] =
                 fragmentObjects.compactMap { path, obj in
-                    if let nestedObj = obj[key, forTypename: field.type.underlyingName]?.nested {
-                        return (path.appending(nestedObject: key), nestedObj)
+                    if let fieldType = field.type.underlyingType as? GraphQLCompositeType,
+                       let nestedObj = obj[key, onType: fieldType]?.nested {
+                        return (path.appendingNestedObject(nestedObj, withKey: key), nestedObj)
                     } else {
                         return nil
                     }
                 }
-            let nestedPath = currentPath.appending(nestedObject: key.firstUppercased)
             if shadowed {
                 // If it's shadowed, then instead of defining the field we instead constrain
                 // the shadowing definition from the other protocol.
@@ -68,7 +121,7 @@ private class FragProtoGenerator {
                     acc[key] = .whereClause(gen(
                         fragProtoFor: nested,
                         following: nestedFragmentObjects,
-                        currentPath: nestedPath
+                        currentPath: currentPath.appendingNestedObject(nested, withKey: key)
                     ))
                 }
                 // If it's shadowed and it's not nested, then we don't need to define anything
@@ -77,38 +130,16 @@ private class FragProtoGenerator {
                 acc[key] = .variableGetter(
                     name: field.name.name,
                     type: field.type,
-                    object: field.nested.map { selection in
-                        gen(fragProtoFor: selection,
+                    object: field.nested.map { object in
+                        gen(fragProtoFor: object,
                             following: nestedFragmentObjects,
-                            currentPath: nestedPath
-                        )
+                            currentPath: currentPath.appendingNestedObject(object, withKey: key))
                     }
                 )
             }
         }
-        let cases: OrderedDictionary<String, FragProto.Case> = object.conditionals.reduce(into: [:]) { acc, x in
-            let (typeCondition, selection) = x
-            let shadowed = object.fragmentConformances.contains {
-                fragmentInfo.selections[$0]!.conditionals.keys.contains(typeCondition)
-            }
-            let fragProto = gen(
-                fragProtoFor: selection,
-                following: fragmentObjects,
-                currentPath: currentPath.appending(nestedObject: typeCondition)
-            )
-            acc[typeCondition] = FragProto.Case(
-                fragProto: fragProto,
-                type: shadowed ? .whereClause : .associatedType
-            )
-        }
-        
-        let protocolConformance = fragmentInfo.conformanceGraph[currentPath]!
-        
-        if cases.isEmpty {
-            return .monomorphic(path: currentPath, fields: fields, conformance: protocolConformance)
-        } else {
-            return .polymorphic(path: currentPath, fields: fields, cases: cases, conformance: protocolConformance)
-        }
+        let protocolConformance = fragmentConformanceGraph[currentPath]!
+        return FragProto.Proto(path: currentPath, fields: fields, conformance: protocolConformance)
     }
 }
 
@@ -122,11 +153,11 @@ private func gen(fragProto root: FragProto, named name: String, fragmentInfo: Fr
         var declsInProtocol: [Decl] = []
         
         switch fragProto {
-        case let .monomorphic(_, fragProtoFields, _):
+        case let .proto(proto):
             // This is a bog standard fragment that will be a protocol, continue
             // on and generate the accessors for the fields below
-            fields = fragProtoFields
-        case let .polymorphic(path, fragProtoFields, cases, _):
+            fields = proto.fields
+        case let .container(path, fragProtoFields, cases, _):
             fields = fragProtoFields
             
             // If the fragment is polymorphic, then the protocol becomes `ContainsFooFragment`
@@ -144,40 +175,46 @@ private func gen(fragProto root: FragProto, named name: String, fragmentInfo: Fr
             // protocol FooFragmentB { ... }
             
             declsInProtocol.append(.let(
-                name: "__\(path.fullyQualifiedName.firstLowercased)",
-                type: fragmentInfo.makeUnderlyingFragmentEnumType(path: path),
+                name: path.containerUnderlyingFragmentVarName,
+                type: .named(path.containerEnumName, genericArguments: cases.keys.map {
+                    .named($0.type.name)
+                }),
                 accessor: .get()
             ))
             
-            // Put the case protocols onto the todo list
-            for (typename, `case`) in cases {
-                fragProtosToGen.append(`case`.fragProto)
+            for (type, `case`) in cases {
+                // Put the case protocol onto the todo list
+                fragProtosToGen.append(.proto(`case`.proto))
+                
                 switch `case`.type {
                 case .associatedType:
                     declsInProtocol.append(
-                        .associatedtype(name: typename, inherits: `case`.fragProto.conformance.name)
+                        .associatedtype(name: type.type.name,
+                                        inherits: `case`.proto.conformance.name)
                     )
                 case .whereClause:
                     whereClauses.append(
-                        Decl.WhereClause(associatedType: typename, constraint: `case`.fragProto.conformance.name)
+                        Decl.WhereClause(associatedType: type.type.name,
+                                         constraint: `case`.proto.conformance.name)
                     )
                 }
-                // And an add an associated type for said protocol
             }
             
             // Generate the enum
             decls.append(
                 .enum(
-                    name: path.fullyQualifiedName,
-                    cases: cases.keys.map { Decl.Case(name: $0.firstLowercased, nestedTypeName: $0) },
+                    name: path.containerEnumName,
+                    cases: cases.keys.map {
+                        Decl.Case(name: $0.type.name.firstLowercased, nestedTypeName: $0.type.name)
+                    },
                     decls: [],
                     conforms: ["Hashable"],
                     defaultCase: Decl.Case(name: "__other", nestedTypeName: nil),
                     genericParameters: cases.map { typeName, `case` in
                         Decl.GenericParameter(
-                            identifier: typeName,
+                            identifier: typeName.type.name,
                             constraint: .named(
-                                `case`.fragProto.conformance.name
+                                `case`.proto.conformance.name
                             )
                         )
                     }
@@ -188,7 +225,8 @@ private func gen(fragProto root: FragProto, named name: String, fragmentInfo: Fr
         // Now generate the accessor requirements for the protocol
         for (key, field) in fields {
             switch field {
-            case .variableGetter(_, var type, let object):
+            case .variableGetter(_, let type, let object):
+                var swiftUIType = graphqlTypeToSwiftUIGraphQLType(type)
                 if let nestedFragProto = object {
                     // Ok this field has a nested object, so we need to generate another protocol
                     // for said nested object:
@@ -202,14 +240,14 @@ private func gen(fragProto root: FragProto, named name: String, fragmentInfo: Fr
                     // And declare an associated type on it
                     // The type of a nested object is always just the name of the key
                     // Replace the underlying type though so we retain the wrapped non-null/list modifiers
-                    type = type.replacingUnderlyingType(with: key.firstUppercased)
+                    swiftUIType = swiftUIType.replacingUnderlyingType(with: key.firstUppercased)
                     declsInProtocol.append(.associatedtype(
-                        name: type.underlyingName,
+                        name: swiftUIType.underlyingName,
                         inherits: nestedFragProto.conformance.name
                     ))
                 }
                 declsInProtocol.append(
-                    .let(name: key, type: genType(for: type), accessor: .get())
+                    .let(name: key, type: genType(for: swiftUIType), accessor: .get())
                 )
             case .whereClause(let fragProto):
                 // Some other fragment protocol that we're conforming to is
