@@ -1,9 +1,7 @@
 import Foundation
 
-public class ScalarDecoder {
-    func decodeScalar(ofType type: Any.Type, value: Value) throws -> Any? {
-        return nil
-    }
+public protocol ScalarDecoder: Sendable {
+    func decodeScalar(ofType type: Any.Type, value: Value) throws -> Any?
 }
 
 public enum ScalarDecoderError: Error {
@@ -11,12 +9,12 @@ public enum ScalarDecoderError: Error {
 }
 
 /// Decodes scalars into foundation types
-public class FoundationScalarDecoder: ScalarDecoder {
+public struct FoundationScalarDecoder: ScalarDecoder {
     let markdownParsingOptions: AttributedString.MarkdownParsingOptions
     public init(markdownParsingOptions: AttributedString.MarkdownParsingOptions = .init()) {
         self.markdownParsingOptions = markdownParsingOptions
     }
-    public override func decodeScalar(ofType type: Any.Type, value: Value) throws -> Any? {
+    public func decodeScalar(ofType type: Any.Type, value: Value) throws -> Any? {
         if type == Date.self {
                 switch value {
                 case .string(let s):

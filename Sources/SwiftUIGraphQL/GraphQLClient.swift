@@ -8,15 +8,15 @@
 import Foundation
 import Combine
 
-public class GraphQLClient: ObservableObject {
-    var cache = Cache()
+public final class GraphQLClient: ObservableObject, Sendable {
+    let cache = Cache()
     
     let endpoint: URL
-    let headerCallback: () -> [String: String]
+    let headerCallback: @Sendable () -> [String: String]
     let urlSession: URLSession
-    let scalarDecoder: ScalarDecoder
+    let scalarDecoder: any ScalarDecoder
     
-    public init(endpoint: URL, urlSession: URLSession = .shared, withHeaders headerCallback: @escaping () -> [String: String] = { [:]}, scalarDecoder: ScalarDecoder = FoundationScalarDecoder()) {
+    public init(endpoint: URL, urlSession: URLSession = .shared, withHeaders headerCallback: @escaping @Sendable () -> [String: String] = { [:]}, scalarDecoder: ScalarDecoder = FoundationScalarDecoder()) {
         self.endpoint = endpoint
         self.urlSession = urlSession
         self.headerCallback = headerCallback

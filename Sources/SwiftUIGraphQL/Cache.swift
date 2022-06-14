@@ -91,9 +91,9 @@ public actor Cache {
         }
     }
 
-    public enum CacheUpdate: ExpressibleByDictionaryLiteral {
+    public enum CacheUpdate: ExpressibleByDictionaryLiteral, Sendable {
         case object([String: CacheUpdate])
-        case update((CacheValue) -> CacheValue)
+        case update(@Sendable (CacheValue) -> CacheValue)
         
         public init(dictionaryLiteral elements: (String, CacheUpdate)...) {
             self = .object(Dictionary(uniqueKeysWithValues: elements))
@@ -109,7 +109,7 @@ public actor Cache {
             })
         }
         
-        public init(_ f: @escaping (CacheValue) -> CacheValue) {
+        public init(_ f: @escaping @Sendable (CacheValue) -> CacheValue) {
             self = .update(f)
         }
     }
@@ -195,7 +195,7 @@ func value(from cacheValue: CacheValue, selection: ResolvedSelection<Never>?, ca
 
 
 /// A top level key for objects that can be cached, i.e. conform to ``Cacheable``
-public struct CacheKey: Hashable {
+public struct CacheKey: Hashable, Sendable {
     let type: String
     let id: String
     

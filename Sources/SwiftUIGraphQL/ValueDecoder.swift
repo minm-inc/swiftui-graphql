@@ -8,7 +8,7 @@
 import Foundation
 
 struct ValueDecoder {
-    let scalarDecoder: ScalarDecoder
+    let scalarDecoder: any ScalarDecoder
     func decode<T: Decodable>(_ type: T.Type, from value: Value) throws -> T {
         let decoder = ValueDecoderImpl(scalarDecoder: scalarDecoder, value: value)
         return try T.self.init(from: decoder)
@@ -19,7 +19,7 @@ fileprivate struct ValueDecoderImpl: Decoder {
     var codingPath: [CodingKey] = []
     
     var userInfo: [CodingUserInfoKey : Any] = [:]
-    let scalarDecoder: ScalarDecoder
+    let scalarDecoder: any ScalarDecoder
     let value: Value
     
     func container<Key>(keyedBy type: Key.Type) throws -> KeyedDecodingContainer<Key> where Key : CodingKey {
@@ -41,7 +41,7 @@ fileprivate struct ValueDecoderImpl: Decoder {
     }
     
     struct UnkeyedContainer: UnkeyedDecodingContainer {
-        let scalarDecoder: ScalarDecoder
+        let scalarDecoder: any ScalarDecoder
         let list: [Value]
         var codingPath: [CodingKey]
 
@@ -153,7 +153,7 @@ fileprivate struct ValueDecoderImpl: Decoder {
     }
     
     struct SingleValueContainer: SingleValueDecodingContainer {
-        let scalarDecoder: ScalarDecoder
+        let scalarDecoder: any ScalarDecoder
         let value: Value
         var codingPath: [CodingKey]
         
@@ -235,7 +235,7 @@ fileprivate struct ValueDecoderImpl: Decoder {
     }
     
     struct KeyedContainer<Key: CodingKey>: KeyedDecodingContainerProtocol {
-        let scalarDecoder: ScalarDecoder
+        let scalarDecoder: any ScalarDecoder
         var codingPath: [CodingKey] = []
         var allKeys: [Key] = []
         
@@ -338,7 +338,7 @@ fileprivate struct ValueDecoderImpl: Decoder {
     }
 }
 
-private func decodeScalarWrappingError<T>(ofType type: T.Type, value: Value, codingPath: [CodingKey], scalarDecoder: ScalarDecoder) throws -> T? {
+private func decodeScalarWrappingError<T>(ofType type: T.Type, value: Value, codingPath: [CodingKey], scalarDecoder: any ScalarDecoder) throws -> T? {
     let scalarDecoded: Any?
     do {
         scalarDecoded = try scalarDecoder.decodeScalar(ofType: type, value: value)
