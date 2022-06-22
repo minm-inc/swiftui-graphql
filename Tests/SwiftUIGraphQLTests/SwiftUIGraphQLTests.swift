@@ -3,6 +3,8 @@ import XCTest
 
 final class SwiftUIGraphQLTests: XCTestCase {
     
+    let valueDecoder = ValueDecoder(scalarDecoder: FoundationScalarDecoder())
+    
     func testDecodingObjects() {
         struct Test1: Equatable, Decodable {
             struct Foo: Equatable, Decodable {
@@ -11,7 +13,7 @@ final class SwiftUIGraphQLTests: XCTestCase {
             let foo: Foo
         }
             
-        let res = try! ValueDecoder().decode(Test1.self, from: .object([
+        let res = try! valueDecoder.decode(Test1.self, from: .object([
             "foo": .object([
                 "bar": .string("bar")
             ])
@@ -24,7 +26,7 @@ final class SwiftUIGraphQLTests: XCTestCase {
             let strings: [String]
         }
             
-        let res = try! ValueDecoder().decode(Test1.self, from: .object([
+        let res = try! valueDecoder.decode(Test1.self, from: .object([
             "strings": .list([.string("hello"), .string("world")])
         ]))
         XCTAssertEqual(Test1(strings: ["hello", "world"]), res)

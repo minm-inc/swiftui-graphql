@@ -226,7 +226,7 @@ extension String: Value1Param {
 ///
 /// This is equivalent to a ``String``, but is wrapped in a type to prevent confusion with ``FieldName``:
 /// An ``ObjectKey`` is the key of the field as returned in the object, and can be affected by field aliases.
-public struct ObjectKey: Hashable, ExpressibleByStringLiteral, CodingKey {
+public struct ObjectKey: Hashable, ExpressibleByStringLiteral, CodingKey, Codable {
     private let key: String
     public init(stringLiteral value: String) {
         self.key = value

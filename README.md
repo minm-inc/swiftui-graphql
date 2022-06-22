@@ -1,6 +1,15 @@
 # swiftui-graphql
 
-A description of this package.
+A GraphQL client for SwiftUI apps.
+
+## Code generation
+swiftui-graphql generates Swift types for your queries, mutations and fragments.
+To use it, you can either run the `swiftui-graphql-codegen` executable as a custom Xcode build rule for your `.graphql` files
+
+Or you can use it as a Swift package manager build tool plugin. 
+
+It generates fragments as protocols, so you can write your views generically and reuse them in multiple places without the need for existentials:
+
 
 # Code generation
 

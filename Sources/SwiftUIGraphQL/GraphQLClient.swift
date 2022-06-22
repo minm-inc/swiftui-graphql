@@ -23,94 +23,30 @@ public final class GraphQLClient: ObservableObject, Sendable {
         self.scalarDecoder = scalarDecoder
     }
     
+    /// All requests to the server within a ``GraphQLClient`` should go through here, where it takes care of updating the cache and stuff.
     func query(query: String, selection: ResolvedSelection<String>, variables: [String: Value]?, cacheUpdater: Cache.Updater? = nil) async throws -> Value {
-        let queryReq = QueryRequest(query: query, variables: variables)
+        let queryReq = GraphQLRequest(query: query, variables: variables)
         
-        let data = try await makeRequestRaw(queryReq)
-        
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        
-        let graphqlResponse = try! decoder.decode(QueryResponse<Value>.self, from: data)
-        if let errors = graphqlResponse.errors {
-            throw QueryError.errors(errors)
-        }
-        
-        guard let decodedData = graphqlResponse.data else {
-            throw QueryError.invalid
-        }
-        
-        guard case let .object(decodedObj) = decodedData else {
-            fatalError()
-        }
+        let incoming = try await makeRequest(queryReq,
+                                             response: [ObjectKey: Value].self,
+                                             endpoint: endpoint,
+                                             urlSession: urlSession,
+                                             headers: headerCallback())
         
         let selection = substituteVariables(in: selection, variableDefs: variables ?? [:])
-        await cache.mergeCache(incoming: decodedObj, selection: selection, updater: cacheUpdater)
+        await cache.mergeCache(incoming: incoming, selection: selection, updater: cacheUpdater)
         
-        return decodedData
+        return .object(incoming)
     }
     
-    // Note: try! all the encoding/decoding as these are programming errors
+    
     public func query<T: Queryable>(_ queryable: T.Type, variables: T.Variables) async throws -> T {
         let decodedData = try await query(query: T.query, selection: T.selection, variables: variablesToObject(variables))
+        // Use a try! here because failing to decode a Queryable from a Value is a programming error
         return try! ValueDecoder(scalarDecoder: scalarDecoder).decode(T.self, from: decodedData)
     }
-    
-    func makeRequestRaw(_ queryRequest: QueryRequest) async throws -> Data {
-        var request = URLRequest(url: endpoint)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        for (headerField, header) in headerCallback() {
-            request.setValue(header, forHTTPHeaderField: headerField)
-        }
-        request.httpBody = try! JSONEncoder().encode(queryRequest)
-        request.cachePolicy = .reloadIgnoringLocalCacheData
-        
-        let (data, response) = try await urlSession.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            print(String(data: data, encoding: .utf8)!)
-            throw QueryError.invalid
-        }
-        return data
-    }
-
-    public func makeRequest<T: Decodable>(_ queryRequest: QueryRequest) async throws -> T {
-        let data = try await makeRequestRaw(queryRequest)
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let graphqlResponse = try! decoder.decode(QueryResponse<T>.self, from: data)
-        guard let decodedData = graphqlResponse.data else {
-            throw QueryError.invalid
-        }
-        
-        return decodedData
-    }
 }
 
-public struct QueryResponse<T: Decodable>: Decodable {
-    public let data: T?
-    public let errors: [GraphQLError]?
-}
-
-public struct GraphQLError: Decodable {
-    public let message: String
-}
-
-public struct QueryRequest: Encodable {
-    let query: String
-    let operationName: String?
-    let variables: [String: Value]?
-    public init(query: String, operationName: String? = nil, variables: [String: Value]? = nil) {
-        self.query = query
-        self.operationName = operationName
-        self.variables = variables
-    }
-}
-
-public enum QueryError: Error {
-    case errors([GraphQLError])
-    case invalid
-}
 
 func variablesToObject<Variables: Encodable>(_ variables: Variables) -> [String: Value]? {
     let res: [String: Value]?

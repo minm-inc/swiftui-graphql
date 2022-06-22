@@ -12,16 +12,19 @@ import SwiftUI
  Need the ``DynamicProperty`` protocol otherwise the `@Environment` variables aren't initialized yet
  */
 @propertyWrapper
-public struct Mutation<Mutation: Queryable & Encodable>: DynamicProperty {
+// TODO: Introduce separate protocol for mutations
+public struct Mutation<Response: Queryable & Encodable>: DynamicProperty {
     @EnvironmentObject public var client: GraphQLClient
-    @StateObject var mutationInternal = MutationOperation<Mutation>()
+    @StateObject var mutationInternal = MutationOperation<Response>()
     private let cacheUpdater: Cache.Updater?
+    private let optimisticResponse: Response?
 
-    public init(cacheUpdater: Cache.Updater? = nil) {
+    public init(cacheUpdater: Cache.Updater? = nil, optimisticResponse: Response? = nil) {
         self.cacheUpdater = cacheUpdater
+        self.optimisticResponse = optimisticResponse
     }
     
-    public var wrappedValue: MutationOperation<Mutation> {
+    public var wrappedValue: MutationOperation<Response> {
         get {
             mutationInternal.client = client
             mutationInternal.cacheUpdater = cacheUpdater
@@ -30,7 +33,7 @@ public struct Mutation<Mutation: Queryable & Encodable>: DynamicProperty {
     }
 }
 
-public class MutationOperation<Mutation1: Queryable & Encodable>: Operation<Mutation1> {    
+public class MutationOperation<Response: Queryable & Encodable>: Operation<Response> {
     public var isLoading: Bool {
         switch state {
         case .loading: return true
@@ -39,15 +42,14 @@ public class MutationOperation<Mutation1: Queryable & Encodable>: Operation<Muta
     }
     
     @discardableResult
-    public func callAsFunction(_ variables: Mutation1.Variables) async throws -> Mutation1 {
-        let response = try await execute(variables: variables)
-        return try! ValueDecoder(scalarDecoder: client!.scalarDecoder).decode(Mutation1.self, from: response)
+    public func callAsFunction(_ variables: Response.Variables) async throws -> Response {
+        try await execute(variables: variables)
     }
 }
 
-extension MutationOperation where Mutation1.Variables == NoVariables {
+extension MutationOperation where Response.Variables == NoVariables {
     @discardableResult
-    public func callAsFunction() async throws -> Mutation1 {
+    public func callAsFunction() async throws -> Response {
         try await callAsFunction(NoVariables())
     }
 }

@@ -10,7 +10,9 @@ import Foundation
 
 
 /// Watches the cache for any changes to the cache and updates its response
+@MainActor
 public class Operation<Response: Queryable>: ObservableObject {
+    // TODO: Can we make state a computed variable based on response, isFetching and error instead of duplicating state?
     var response: Value? = nil {
         didSet {
             if let response = response {
@@ -21,6 +23,10 @@ public class Operation<Response: Queryable>: ObservableObject {
             }
         }
     }
+
+//    @Published public private(set) var data: Response?
+//    @Published public private(set) var isFetching: Bool = false
+//    @Published public private(set) var error: (any Error)?
 
     var variables: Response.Variables?
     
@@ -51,40 +57,43 @@ public class Operation<Response: Queryable>: ObservableObject {
     public enum State {
         case loading
         case loaded(data: Response)
-        case error(QueryError)
+        /// The latest request had an error.
+        ///
+        /// There are three main types of errors you want to catch:
+        /// 1. GraphQL errors, i.e. errors that ocurred whilst executing your operation on the server, which are returned in the form of ``GraphQLRequestError/graphqlError(_:)``
+        /// 2. Network errors that come from URLSession itself, i.e. there's no Internet connection etc. These are usually URLErrors
+        /// 3. HTTP errors that came from a non-2xx status code, which will be in the form of ``GraphQLRequestError/invalidHTTPResponse(_:)``
+        ///
+        /// ```swift
+        /// switch query() {
+        /// case .loading: ProgressView()
+        /// case .loaded(let data): MyView(data)
+        /// case .error(is URLError): Text("A network error ocurred")
+        /// case .error: Text("An unknown error ocurred")
+        /// }
+        /// ```
+        case error(any Error)
     }
     
     @Published public private(set) var state: State = .loading
     
-    func executeAndUpdateState(variables: Response.Variables) async {
-        do {
-            let _ = try await execute(variables: variables)
-        } catch {
-            await MainActor.run {
-                if let error = error as? QueryError {
-                    state = .error(error)
-                } else {
-                    state = .error(.invalid)
-                }
-            }
-        }
-    }
-    
-    // TODO: Refactor this so that state and response are one, and there's only one `execute` method
-    func execute(variables: Response.Variables) async throws -> Value {
+    @discardableResult
+    func execute(variables: Response.Variables) async throws -> Response {
         guard let client = client else { fatalError("Client not set") }
         
         let variablesObj = variablesToObject(variables)
-        let incoming: Value = try await client.query(query: Response.query, selection: Response.selection, variables: variablesObj, cacheUpdater: cacheUpdater)
-        let merged: Value
-        if let mergePolicy = mergePolicy, let response = response {
-            merged = mergePolicy.merge(existing: response, incoming: incoming)
-        } else {
-            merged = incoming
+        var incoming: Value
+        do {
+            incoming = try await client.query(query: Response.query, selection: Response.selection, variables: variablesObj, cacheUpdater: cacheUpdater)
+            if let mergePolicy {
+                incoming = mergePolicy.merge(existing: response, incoming: incoming)
+            }
+            self.response = incoming
+        } catch {
+            state = .error(error)
+            throw error
         }
-        // Can only set response on the main actor
-        await MainActor.run { self.response = merged }
-        return merged
+        return try! ValueDecoder(scalarDecoder: client.scalarDecoder).decode(Response.self, from: incoming)
     }
     
     
@@ -130,7 +139,6 @@ public class Operation<Response: Queryable>: ObservableObject {
 }
 
 
-
 public struct MergePolicy: ExpressibleByDictionaryLiteral {
     public init(dictionaryLiteral elements: (ObjectKey, MergePolicy)...) {
         self.fields = Dictionary(uniqueKeysWithValues: elements)
@@ -147,7 +155,10 @@ public struct MergePolicy: ExpressibleByDictionaryLiteral {
     let f: ((SwiftUIGraphQL.Value, SwiftUIGraphQL.Value) -> SwiftUIGraphQL.Value)?
     let fields: [ObjectKey: MergePolicy]
     
-    func merge(existing: SwiftUIGraphQL.Value, incoming: SwiftUIGraphQL.Value) -> SwiftUIGraphQL.Value {
+    func merge(existing: SwiftUIGraphQL.Value?, incoming: SwiftUIGraphQL.Value) -> SwiftUIGraphQL.Value {
+        guard let existing else {
+            return incoming
+        }
         var res = incoming
         switch (existing, res) {
         case (.object(let existingObj), .object(var incomingObj)):
