@@ -13,7 +13,8 @@ func attach(operation: OperationDefinition, to decl: Decl, schema: GraphQLSchema
             return Decl.`let`(
                 name: varDef.variable.name.value,
                 type: genType(for: type),
-                initializer: varDef.defaultValue.map(convertToExpr)
+                initializer: varDef.defaultValue.map(convertToExpr),
+                access: .public
             )
         }
         let initializer = Decl.`init`(
