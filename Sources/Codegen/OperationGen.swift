@@ -14,6 +14,7 @@ func attach(operation: OperationDefinition, to decl: Decl, schema: GraphQLSchema
                 name: varDef.variable.name.value,
                 type: genType(for: type),
                 initializer: varDef.defaultValue.map(convertToExpr),
+                accessor: .var,
                 access: .public
             )
         }
