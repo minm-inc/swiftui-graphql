@@ -8,18 +8,24 @@
 import Foundation
 import Combine
 
-public final class GraphQLClient: ObservableObject, Sendable {
+public final class GraphQLClient: ObservableObject {
     let cache = Cache()
     
     let endpoint: URL
-    let headerCallback: @Sendable () -> [String: String]
+    let headerCallback: () -> [String: String]
     let urlSession: URLSession
     let scalarDecoder: any ScalarDecoder
+    let errorCallback: (@MainActor (any Error) -> Bool)?
     
-    public init(endpoint: URL, urlSession: URLSession = .shared, withHeaders headerCallback: @escaping @Sendable () -> [String: String] = { [:]}, scalarDecoder: ScalarDecoder = FoundationScalarDecoder()) {
+    public init(endpoint: URL,
+                urlSession: URLSession = .shared,
+                withHeaders headerCallback: @escaping () -> [String: String] = { [:] },
+                onError errorCallback: (@MainActor (any Error) -> Bool)? = nil,
+                scalarDecoder: ScalarDecoder = FoundationScalarDecoder()) {
         self.endpoint = endpoint
         self.urlSession = urlSession
         self.headerCallback = headerCallback
+        self.errorCallback = errorCallback
         self.scalarDecoder = scalarDecoder
     }
     
@@ -27,16 +33,32 @@ public final class GraphQLClient: ObservableObject, Sendable {
     func query(query: String, selection: ResolvedSelection<String>, variables: [String: Value]?, cacheUpdater: Cache.Updater? = nil) async throws -> Value {
         let queryReq = GraphQLRequest(query: query, variables: variables)
         
-        let incoming = try await makeRequest(queryReq,
-                                             response: [ObjectKey: Value].self,
-                                             endpoint: endpoint,
-                                             urlSession: urlSession,
-                                             headers: headerCallback())
-        
-        let selection = substituteVariables(in: selection, variableDefs: variables ?? [:])
-        await cache.mergeCache(incoming: incoming, selection: selection, updater: cacheUpdater)
-        
-        return .object(incoming)
+        do {
+            guard case .object(let incoming) = try await makeRequest(queryReq,
+                                                                     response: Value.self,
+                                                                     endpoint: endpoint,
+                                                                     urlSession: urlSession,
+                                                                     headers: headerCallback()) else {
+                throw GraphQLRequestError.invalidGraphQLResponse
+            }
+            
+            let selection = substituteVariables(in: selection, variableDefs: variables ?? [:])
+            await cache.mergeCache(incoming: incoming, selection: selection, updater: cacheUpdater)
+            
+            return .object(incoming)
+        } catch {
+            let shouldRetry = await MainActor.run {
+                errorCallback?(error) ?? false
+            }
+            if shouldRetry {
+                return try await self.query(query: query,
+                                            selection: selection,
+                                            variables: variables,
+                                            cacheUpdater: cacheUpdater)
+            } else {
+                throw error
+            }
+        }
     }
     
     
