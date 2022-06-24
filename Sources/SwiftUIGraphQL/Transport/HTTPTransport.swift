@@ -1,6 +1,6 @@
 import Foundation
 
-/// Stuff to do with talking to the server etc.
+/// Implementation of the HTTP transport stuff according to the latest [GraphQL Over HTTP spec](https://github.com/graphql/graphql-over-http/blob/main/spec/GraphQLOverHTTP.md)
 
 public struct GraphQLRequest: Encodable {
     let query: String
@@ -23,20 +23,25 @@ public enum GraphQLResponse<T: Decodable>: Decodable {
     
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        let data = try container.decode(T?.self, forKey: .data)
-        let errors = try container.decode([GraphQLError]?.self, forKey: .errors)
+        let data = try! container.decodeIfPresent(T.self, forKey: .data)
+        let errors = try! container.decodeIfPresent([GraphQLError].self, forKey: .errors)
         if let errors {
             self = .errors(data, errors: errors)
         } else if let data {
             self = .data(data)
         } else {
-            throw DecodingError.dataCorrupted(DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "Neither data nor errors nor were present in the GraphQL response"))
+            throw GraphQLRequestError.invalidGraphQLResponse
         }
     }
 }
 
 public struct GraphQLError: Decodable {
     public let message: String
+    public let locations: [Location]?
+    public struct Location: Decodable {
+        public let line, column: Int
+    }
+    // TODO: Path segment
 }
 
 /// Makes a standalone request, throwing if there any errors at either the transport or GraphQL level.
@@ -75,4 +80,6 @@ public enum GraphQLRequestError: Error {
     case graphqlError([GraphQLError])
     /// A non 2xx HTTP response was received from the server (i.e. you may need to authenticate, the endpoint is incorrect etc.)
     case invalidHTTPResponse(HTTPURLResponse)
+    /// The server returned a badly-formed response
+    case invalidGraphQLResponse
 }
