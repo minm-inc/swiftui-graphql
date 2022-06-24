@@ -7,8 +7,9 @@
 
 import Foundation
 import Combine
+import SwiftUI
 
-public final class GraphQLClient: ObservableObject {
+public class GraphQLClient: ObservableObject {
     let cache = Cache()
     
     let endpoint: URL
@@ -102,5 +103,58 @@ public class CacheTracked<Fragment: Cacheable>: ObservableObject {
     /// Initializes a static fragment definition. Useful for in testing.
     public init(fragment: Fragment) {
         self.fragment = fragment
+    }
+}
+
+/// A mock ``GraphQLClient`` that can be initialized with a canned JSON response for use in Xcode Previews and testing.
+///
+/// To use it, set a ``MockGraphQLClient`` as the environment value for the `graphqlClient` environment key.
+/// Any ``Query``s in the view hierarchy will then use the response for their ``GraphQLResult``.
+///
+/// A convenient pattern is to store your prepared mock JSON responses in a folder somewhere in your app, then add it to your target's [development assets](https://developer.apple.com/wwdc19/233?time=984).
+/// Then you can access it from the main bundle:
+/// ```swift
+/// struct Library_Previews: PreviewProvider {
+///     static var previews: some View {
+///         MyView()
+///             .environment(\.graphqlClient,
+///                          MockGraphQLClient(from: Bundle.main.url(forResource: "queryResponse",
+///                                                                  withExtension: "json")!))
+///     }
+/// }
+/// ```
+public class MockGraphQLClient: GraphQLClient {
+    private let response: GraphQLResponse<Value>
+    /// Create a mock GraphQL client that returns the response from a JSON file specified at the URL.
+    public init(from url: URL) {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        response = try! decoder.decode(GraphQLResponse<Value>.self, from: Data(contentsOf: url))
+        super.init(endpoint: URL(string: "/")!)
+    }
+    
+    override func query(query: String, selection: ResolvedSelection<String>, variables: [String : Value]?, cacheUpdater: Cache.Updater? = nil) async throws -> Value {
+        switch response {
+        case .data(let value): return value
+        case .errors(_, let errors): throw GraphQLRequestError.graphqlError(errors)
+        }
+    }
+}
+
+private class DummyGraphQLClient: GraphQLClient {
+    init() { super.init(endpoint: URL(string: "/")!) }
+    override func query(query: String, selection: ResolvedSelection<String>, variables: [String : Value]?, cacheUpdater: Cache.Updater? = nil) async throws -> Value {
+        fatalError("You need to set \\.graphqlClient somewhere in the environment hierarchy!")
+    }
+}
+
+struct GraphQLClientKey: EnvironmentKey {
+    static var defaultValue: GraphQLClient = DummyGraphQLClient()
+}
+
+public extension EnvironmentValues {
+    var graphqlClient: GraphQLClient {
+        get { self[GraphQLClientKey.self] }
+        set { self[GraphQLClientKey.self] = newValue }
     }
 }

@@ -8,14 +8,11 @@
 import Combine
 import SwiftUI
 
-/**
- Need the ``DynamicProperty`` protocol otherwise the `@Environment` variables aren't initialized yet
- */
 @propertyWrapper
-// TODO: Introduce separate protocol for mutations
-public struct Mutation<Response: Queryable & Encodable>: DynamicProperty {
-    @EnvironmentObject public var client: GraphQLClient
-    @StateObject var mutationInternal = MutationOperation<Response>()
+public struct Mutation<Response: Queryable>: DynamicProperty {
+    // Note: Need the DynamicProperty protocol to get access to `@Environment`
+    @Environment(\.graphqlClient) public var client: GraphQLClient
+    @StateObject var operation = Operation<Response>()
     private let cacheUpdater: Cache.Updater?
     private let optimisticResponse: Response?
 
@@ -24,32 +21,12 @@ public struct Mutation<Response: Queryable & Encodable>: DynamicProperty {
         self.optimisticResponse = optimisticResponse
     }
     
-    public var wrappedValue: MutationOperation<Response> {
+    public var wrappedValue: Operation<Response> {
         get {
-            mutationInternal.client = client
-            mutationInternal.cacheUpdater = cacheUpdater
-            return mutationInternal
+            operation.client = client
+            operation.cacheUpdater = cacheUpdater
+            return operation
         }
     }
 }
 
-public class MutationOperation<Response: Queryable & Encodable>: Operation<Response> {
-    public var isLoading: Bool {
-        switch state {
-        case .loading: return true
-        default: return false
-        }
-    }
-    
-    @discardableResult
-    public func callAsFunction(_ variables: Response.Variables) async throws -> Response {
-        try await execute(variables: variables)
-    }
-}
-
-extension MutationOperation where Response.Variables == NoVariables {
-    @discardableResult
-    public func callAsFunction() async throws -> Response {
-        try await callAsFunction(NoVariables())
-    }
-}

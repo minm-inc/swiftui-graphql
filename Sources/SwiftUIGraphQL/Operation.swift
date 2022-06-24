@@ -12,39 +12,37 @@ import Foundation
 /// Watches the cache for any changes to the cache and updates its response
 @MainActor
 public class Operation<Response: Queryable>: ObservableObject {
-    // TODO: Can we make state a computed variable based on response, isFetching and error instead of duplicating state?
-    var response: Value? = nil {
+    private var response: Value? = nil {
         didSet {
-            if let response = response {
-                let data = try! ValueDecoder(scalarDecoder: client!.scalarDecoder).decode(Response.self, from: response)
-                self.state = .loaded(data: data)
+            if let response {
+                result.data = try! ValueDecoder(scalarDecoder: client!.scalarDecoder).decode(Response.self, from: response)
             } else {
-                self.state = .loading
+                result.data = nil
             }
         }
     }
 
-//    @Published public private(set) var data: Response?
-//    @Published public private(set) var isFetching: Bool = false
-//    @Published public private(set) var error: (any Error)?
+    @Published public private(set) var result = GraphQLResult<Response>(data: nil, isFetching: true, error: nil)
 
-    var variables: Response.Variables?
+    private var variables: Response.Variables?
     
     private var cacheSink: AnyCancellable?
     
     var client: GraphQLClient? {
         didSet {
-            guard let client = client else {
+            guard let client else {
                 self.cacheSink?.cancel()
                 self.cacheSink = nil
                 return
             }
+            if oldValue === client { return }
             self.cacheSink = client.cache.publisher
                 .receive(on: DispatchQueue.main)
                 .sink { [unowned self] (changedKeys, cacheStore) in
                     guard let response = self.response else {
                         return
                     }
+                    // TODO: self.variables here smells like a race condition
                     let selection = substituteVariables(in: Response.selection, variableDefs: variablesToObject(self.variables) ?? [:])
                     self.response = update(value: response, selection: selection, changedKeys: changedKeys, cacheStore: cacheStore)
                 }
@@ -54,88 +52,64 @@ public class Operation<Response: Queryable>: ObservableObject {
     var mergePolicy: MergePolicy? = nil
     var cacheUpdater: Cache.Updater? = nil
     
-    public enum State {
-        case loading
-        case loaded(data: Response)
-        /// The latest request had an error.
-        ///
-        /// There are three main types of errors you want to catch:
-        /// 1. GraphQL errors, i.e. errors that ocurred whilst executing your operation on the server, which are returned in the form of ``GraphQLRequestError/graphqlError(_:)``
-        /// 2. Network errors that come from URLSession itself, i.e. there's no Internet connection etc. These are usually URLErrors
-        /// 3. HTTP errors that came from a non-2xx status code, which will be in the form of ``GraphQLRequestError/invalidHTTPResponse(_:)``
-        ///
-        /// ```swift
-        /// switch query() {
-        /// case .loading: ProgressView()
-        /// case .loaded(let data): MyView(data)
-        /// case .error(is URLError): Text("A network error ocurred")
-        /// case .error: Text("An unknown error ocurred")
-        /// }
-        /// ```
-        case error(any Error)
-    }
-    
-    @Published public private(set) var state: State = .loading
-    
+    @MainActor
     @discardableResult
     func execute(variables: Response.Variables) async throws -> Response {
         guard let client = client else { fatalError("Client not set") }
+        self.variables = variables
         
         let variablesObj = variablesToObject(variables)
         var incoming: Value
         do {
+            result.isFetching = true
             incoming = try await client.query(query: Response.query, selection: Response.selection, variables: variablesObj, cacheUpdater: cacheUpdater)
+            result.isFetching = false
             if let mergePolicy {
                 incoming = mergePolicy.merge(existing: response, incoming: incoming)
             }
             self.response = incoming
+            result.error = nil
         } catch {
-            state = .error(error)
+            result.error = error
+            result.isFetching = false
             throw error
         }
         return try! ValueDecoder(scalarDecoder: client.scalarDecoder).decode(Response.self, from: incoming)
     }
     
-    
-    private func update(value val: Value, selection: ResolvedSelection<Never>, changedKeys: Set<CacheKey>, cacheStore: [CacheKey: CacheObject]) -> Value {
-        switch val {
-        case .object(let oldObj):
-            let recursed = Dictionary(uniqueKeysWithValues: oldObj.compactMap { key, val -> (ObjectKey, Value)? in
-                let typename: String?
-                if case .string(let s) = extract(field: "__typename", from: oldObj, selection: selection) {
-                    typename = s
-                } else {
-                    typename = nil
-                }
-                if let field = findField(key: key, onType: typename, in: selection),
-                   let nested = field.nested {
-                    return (
-                        key,
-                        update(
-                            value: val,
-                            selection: nested,
-                            changedKeys: changedKeys,
-                            cacheStore: cacheStore
-                        )
-                    )
-                } else {
-                    return (key, val)
-                }
-            })
-            guard let existingCacheKey = cacheKey(from: recursed, selection: selection),
-                  changedKeys.contains(existingCacheKey),
-                  let changedObj = cacheStore[existingCacheKey] else {
-                return .object(recursed)
-            }
-            
-            let incomingObj = value(from: changedObj, selection: selection, cacheStore: cacheStore)
-            return .object(oldObj.merging(incomingObj) { $1 })
-        case .list(let objs):
-            return .list(objs.map { update(value: $0, selection: selection, changedKeys: changedKeys, cacheStore: cacheStore) })
-        default:
-            return val
-        }
+    @discardableResult
+    public func callAsFunction(_ variables: Response.Variables) async throws -> Response {
+        try await execute(variables: variables)
     }
+    
+    @discardableResult
+    public func callAsFunction() async throws -> Response where Response.Variables == NoVariables {
+        try await callAsFunction(NoVariables())
+    }
+}
+
+/// The result of a GraphQL operation.
+public struct GraphQLResult<Response> {
+    /// The data returned by the server for your operation.
+    public internal(set) var data: Response?
+    /// Whether or not the operation is currently being fetched/loading.
+    public internal(set) var isFetching: Bool
+    /// Any errors that occurred during the previous request.
+    ///
+    /// There are three main types of errors you want to catch:
+    /// 1. GraphQL errors, i.e. errors that ocurred whilst executing your operation on the server, which are returned in the form of ``GraphQLRequestError/graphqlError(_:)``
+    /// 2. Network errors that come from URLSession itself, i.e. there's no Internet connection etc. These are usually URLErrors
+    /// 3. HTTP errors that came from a non-2xx status code, which will be in the form of ``GraphQLRequestError/invalidHTTPResponse(_:)``
+    ///
+    /// ```swift
+    /// switch query {
+    /// case .loading: ProgressView()
+    /// case .loaded(let data): MyView(data)
+    /// case .error(is URLError): Text("A network error ocurred")
+    /// case .error: Text("An unknown error ocurred")
+    /// }
+    /// ```
+    public internal(set) var error: (any Error)?
 }
 
 

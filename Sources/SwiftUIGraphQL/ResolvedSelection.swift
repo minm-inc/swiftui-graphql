@@ -14,7 +14,7 @@ public struct SelectionField<Arguments, Nested, Type> {
     public let arguments: Arguments
     public let type: `Type`
     public var nested: Nested?
-    public init(name: FieldName, arguments: Arguments, type: `Type`, nested: Nested?) {
+    public init(name: FieldName, arguments: Arguments, type: `Type`, nested: Nested? = nil) {
         self.name = name
         self.arguments = arguments
         self.type = type

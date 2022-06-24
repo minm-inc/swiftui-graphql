@@ -29,7 +29,7 @@ public actor Cache {
             case .list(let list):
                 return .list(list.map { go($0, selection: selection) })
             case .object(let unrecursedObj):
-                guard let selection = selection else {
+                guard let selection else {
                     fatalError("Unexpected object without a selection")
                 }
                 
@@ -56,6 +56,7 @@ public actor Cache {
                 } else {
                     // New addition to the cache
                     store[cacheKey] = normalizedObj
+                    changedObjs[cacheKey] = store[cacheKey]
                 }
                 return .reference(cacheKey)
             case let .string(x):
@@ -325,5 +326,46 @@ public func cacheKey(from cacheValue: CacheValue) -> CacheKey? {
         return cacheKey
     default:
         return nil
+    }
+}
+
+/// Given an existing value and the corresponding selection for that value, update any objects in it that may have changed from the cache.
+func update(value val: Value, selection: ResolvedSelection<Never>, changedKeys: Set<CacheKey>, cacheStore: [CacheKey: CacheObject]) -> Value {
+    switch val {
+    case .object(let oldObj):
+        let recursed = Dictionary(uniqueKeysWithValues: oldObj.compactMap { key, val -> (ObjectKey, Value)? in
+            let typename: String?
+            if case .string(let s) = extract(field: "__typename", from: oldObj, selection: selection) {
+                typename = s
+            } else {
+                typename = nil
+            }
+            if let field = findField(key: key, onType: typename, in: selection),
+               let nested = field.nested {
+                return (
+                    key,
+                    update(
+                        value: val,
+                        selection: nested,
+                        changedKeys: changedKeys,
+                        cacheStore: cacheStore
+                    )
+                )
+            } else {
+                return (key, val)
+            }
+        })
+        guard let existingCacheKey = cacheKey(from: recursed, selection: selection),
+              changedKeys.contains(existingCacheKey),
+              let changedObj = cacheStore[existingCacheKey] else {
+            return .object(recursed)
+        }
+        
+        let incomingObj = value(from: changedObj, selection: selection, cacheStore: cacheStore)
+        return .object(oldObj.merging(incomingObj) { $1 })
+    case .list(let objs):
+        return .list(objs.map { update(value: $0, selection: selection, changedKeys: changedKeys, cacheStore: cacheStore) })
+    default:
+        return val
     }
 }
