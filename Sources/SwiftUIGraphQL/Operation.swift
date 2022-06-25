@@ -14,6 +14,10 @@ import Foundation
 public class Operation<Response: Queryable>: ObservableObject {
     private var response: Value? = nil {
         didSet {
+            // Don't publish unecessary updates if nothing changed
+            if response == oldValue {
+                return
+            }
             if let response {
                 result.data = try! ValueDecoder(scalarDecoder: client!.scalarDecoder).decode(Response.self, from: response)
             } else {
