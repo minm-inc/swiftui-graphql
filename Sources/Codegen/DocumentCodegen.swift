@@ -51,7 +51,7 @@ import OrderedCollections
 ///            └─────────────┘
 ///
 /// ```
-public func generateCode(document rawDocument: Document, schema: GraphQLSchema, globalFragments: [FragmentDefinition]) -> Syntax {
+public func generateDocument(_ rawDocument: Document, schema: GraphQLSchema, globalFragments: [FragmentDefinition]) -> SourceFileSyntax {
     let document = attachCacheableFields(schema: schema, document: rawDocument)
     var decls = [Decl]()
     
@@ -84,36 +84,7 @@ public func generateCode(document rawDocument: Document, schema: GraphQLSchema, 
     }
     
     let swiftGen = SwiftGen()
-    
-    let sourceFile = SourceFileSyntax {
-        $0.addStatement(CodeBlockItemSyntax {
-            $0.useItem(Syntax(
-                ImportDeclSyntax {
-                    $0.useImportTok(SyntaxFactory.makeImportKeyword().withTrailingTrivia(.spaces(1)))
-                    $0.addPathComponent(AccessPathComponentSyntax {
-                        $0.useName(SyntaxFactory.makeIdentifier("Foundation"))
-                    })
-                }.withTrailingTrivia(.newlines(1))
-            ))
-        })
-        $0.addStatement(CodeBlockItemSyntax {
-            $0.useItem(Syntax(
-                ImportDeclSyntax {
-                    $0.useImportTok(SyntaxFactory.makeImportKeyword().withTrailingTrivia(.spaces(1)))
-                    $0.addPathComponent(AccessPathComponentSyntax {
-                        $0.useName(SyntaxFactory.makeIdentifier("SwiftUIGraphQL"))
-                    })
-                }.withTrailingTrivia(.newlines(1))
-            ))
-        })
-        for decl in decls.map(swiftGen.gen) {
-            $0.addStatement(CodeBlockItemSyntax {
-                $0.useItem(Syntax(decl))
-            })
-        }
-    }
-    
-    return Syntax(sourceFile)
+    return genSourceFileWithImports(imports: ["Foundation", "SwiftUIGraphQL"], decls: decls.map(swiftGen.gen))
 }
 
 private func gen(operation def: OperationDefinition, schema: GraphQLSchema, fragmentInfo: FragmentInfo) -> Decl {

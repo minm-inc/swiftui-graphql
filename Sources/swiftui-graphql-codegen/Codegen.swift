@@ -59,12 +59,12 @@ struct Codegen: AsyncParsableCommand {
     var projectDirectory: String?
     
     @ArgumentParser.Argument(help: "The .graphql file to generate Swift code for")
-    var input: String
+    var input: String?
     static var configuration = CommandConfiguration(
         abstract: "Generate Swift code for a query"
     )
     
-    private func collectGlobalFragmentDefinitions(schema: GraphQLSchema) throws -> [FragmentDefinition] {
+    private func collectGlobalFragmentDefinitions(schema: GraphQLSchema, input: String) throws -> [FragmentDefinition] {
         let projectDirectory = projectDirectory.map(URL.init(string:)).map { $0! } ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         let enumerator = FileManager.default.enumerator(at: projectDirectory, includingPropertiesForKeys: [.isDirectoryKey], options: .skipsHiddenFiles)!
         
@@ -108,23 +108,30 @@ struct Codegen: AsyncParsableCommand {
     mutating func run() async throws {
         let schema = try await loadSchema()
         
-        let document = try parse(contents: String(contentsOfFile: input), filename: input)
-        
-        let globalFragments = try collectGlobalFragmentDefinitions(schema: schema)
-        
-        // Need to validate document as if all the other global fragments were in it
-        var documentWithGlobalFragments = document
-        documentWithGlobalFragments.definitions += globalFragments.map { .executableDefinition(.fragment($0)) }
-        
-        let validationErrors = GraphQL.validate(schema: schema, ast: documentWithGlobalFragments)
-        if !validationErrors.isEmpty {
-            validationErrors.forEach(printXcodeError)
-            Foundation.exit(1)
-        }
-        
         var output = FileOutputStream(path: output)
-        generateCode(document: document, schema: schema, globalFragments: globalFragments)
-            .write(to: &output)
+        
+        if let input {
+            // If an input was specified, we're generating the types for that documents
+            let document = try parse(contents: String(contentsOfFile: input), filename: input)
+            
+            let globalFragments = try collectGlobalFragmentDefinitions(schema: schema, input: input)
+            
+            // Need to validate document as if all the other global fragments were in it
+            var documentWithGlobalFragments = document
+            documentWithGlobalFragments.definitions += globalFragments.map { .executableDefinition(.fragment($0)) }
+            
+            let validationErrors = GraphQL.validate(schema: schema, ast: documentWithGlobalFragments)
+            if !validationErrors.isEmpty {
+                validationErrors.forEach(printXcodeError)
+                Foundation.exit(1)
+            }
+            generateDocument(document, schema: schema, globalFragments: globalFragments)
+                .write(to: &output)
+        } else {
+            // Otherwise, we're generating the enum types/input object types for the schema
+            genSourceFileWithImports(imports: [], decls: genEnums(schema: schema))
+                .write(to: &output)
+        }
     }
     
     struct FileOutputStream: TextOutputStream {
@@ -132,7 +139,9 @@ struct Codegen: AsyncParsableCommand {
         init(path: String?) {
             if let path = path {
                 let url = URL(fileURLWithPath: path)
-                _ = FileManager.default.createFile(atPath: path, contents: nil)
+                guard FileManager.default.createFile(atPath: path, contents: nil) else {
+                    fatalError("Couldn't create a file to write to at \(path)")
+                }
                 handle = try! FileHandle(forWritingTo: url)
             } else {
                 handle = FileHandle.standardOutput

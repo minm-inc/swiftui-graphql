@@ -226,13 +226,9 @@ private class ObjectGenerator {
             name: name,
             cases: cases.keys.map {
                 Decl.Case(name: $0.type.name.firstLowercased, nestedTypeName: $0.type.name)
-            },
+            } + [Decl.Case(name: defaultCaseName, nestedTypeName: defaultTypeName)],
             decls: decls,
             conforms: currentConformances(for: fields),
-            defaultCase: Decl.Case(
-                name: defaultCaseName,
-                nestedTypeName: defaultTypeName
-            ),
             genericParameters: []
         )
     }

@@ -7,7 +7,6 @@ enum Decl: Equatable {
         cases: [Case],
         decls: [Decl],
         conforms: [String],
-        defaultCase: Case?,
         genericParameters: [GenericParameter]
     )
     /// An `extension Foo: Bar { ... }`
@@ -77,6 +76,13 @@ enum Decl: Equatable {
     struct Case: Equatable {
         let name: String
         let nestedTypeName: String?
+        let rawValue: Expr?
+        
+        init(name: String, nestedTypeName: String? = nil, rawValue: Expr? = nil) {
+            self.name = name
+            self.nestedTypeName = nestedTypeName
+            self.rawValue =  rawValue
+        }
     }
 }
 

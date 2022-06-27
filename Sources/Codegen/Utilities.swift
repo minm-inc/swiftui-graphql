@@ -1,6 +1,7 @@
 import GraphQL
 import OrderedCollections
 import SwiftUIGraphQL
+import SwiftSyntax
 
 extension GraphQLType {
     var underlyingType: any GraphQLNamedType {
@@ -108,5 +109,28 @@ class AnyGraphQLCompositeType: Hashable {
     
     static func == (lhs: AnyGraphQLCompositeType, rhs: AnyGraphQLCompositeType) -> Bool {
         lhs.type === rhs.type
+    }
+}
+
+/// Generates a source file with Foundation and SwiftUIGraphQL imports in it
+public func genSourceFileWithImports(imports: [String], decls: [DeclSyntax]) -> SourceFileSyntax {
+    SourceFileSyntax {
+        for `import` in imports {
+            $0.addStatement(CodeBlockItemSyntax {
+                $0.useItem(Syntax(
+                    ImportDeclSyntax {
+                        $0.useImportTok(SyntaxFactory.makeImportKeyword().withTrailingTrivia(.spaces(1)))
+                        $0.addPathComponent(AccessPathComponentSyntax {
+                            $0.useName(SyntaxFactory.makeIdentifier(`import`))
+                        })
+                    }.withTrailingTrivia(.newlines(1))
+                ))
+            })
+        }
+        for decl in decls {
+            $0.addStatement(CodeBlockItemSyntax {
+                $0.useItem(Syntax(decl))
+            })
+        }
     }
 }

@@ -34,7 +34,7 @@ class IntegrationTests: XCTestCase {
             errors.forEach { XCTFail($0.localizedDescription) }
         }
         var actualOutput = ""
-        generateCode(document: document, schema: schema, globalFragments: [])
+        generateDocument(document, schema: schema, globalFragments: [])
             .write(to: &actualOutput)
         let outputUrl = Bundle.module.url(forResource: path, withExtension: "swift")!
         let expectedOutput = String(data: try! Data(contentsOf: outputUrl), encoding: .utf8)!

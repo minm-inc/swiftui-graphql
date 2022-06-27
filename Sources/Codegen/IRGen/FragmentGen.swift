@@ -206,10 +206,9 @@ private func gen(fragProto root: FragProto, named name: String, fragmentInfo: Fr
                     name: path.containerEnumName,
                     cases: cases.keys.map {
                         Decl.Case(name: $0.type.name.firstLowercased, nestedTypeName: $0.type.name)
-                    },
+                    } + [Decl.Case(name: "__other", nestedTypeName: nil)],
                     decls: [],
                     conforms: ["Hashable"],
-                    defaultCase: Decl.Case(name: "__other", nestedTypeName: nil),
                     genericParameters: cases.map { typeName, `case` in
                         Decl.GenericParameter(
                             identifier: typeName.type.name,

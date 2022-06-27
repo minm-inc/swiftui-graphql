@@ -29,14 +29,13 @@ class SwiftGen {
                     decls: decls
                 )
             ).withTrailingTrivia(.newlines(1))
-        case let .enum(name, cases, decls, conforms, defaultCase, genericParameters):
+        case let .enum(name, cases, decls, conforms, genericParameters):
             return DeclSyntax(
                 genEnum(
                     name: name,
                     cases: cases,
                     decls: decls,
                     conforms: conforms,
-                    defaultCase: defaultCase,
                     genericParameters: genericParameters
                 )
             ).withTrailingTrivia(.newlines(1))
@@ -169,7 +168,7 @@ class SwiftGen {
         }
     }
     
-    private func genEnum(name: String, cases: [Decl.Case], decls: [Decl], conforms: [String], defaultCase: Decl.Case?, genericParameters: [Decl.GenericParameter]) -> EnumDeclSyntax {
+    private func genEnum(name: String, cases: [Decl.Case], decls: [Decl], conforms: [String], genericParameters: [Decl.GenericParameter]) -> EnumDeclSyntax {
         EnumDeclSyntax {
             $0.addModifier(genAccess(.public).withTrailingTrivia(.spaces(1)))
             $0.useEnumKeyword(
@@ -201,8 +200,7 @@ class SwiftGen {
                         .withLeadingTrivia(.spaces(indentationLevel))
                 )
                 indent {
-                    let allCases = cases + [defaultCase].compactMap { $0 }
-                    for `case` in allCases {
+                    for `case` in cases {
                         builder.addMember(MemberDeclListItemSyntax {
                             $0.useDecl(DeclSyntax(gen(`case`)))
                         })
@@ -242,6 +240,15 @@ class SwiftGen {
                                     ))
                                 }
                             )
+                        }
+                    )
+                }
+                if let rawValue = `case`.rawValue {
+                    $0.useRawValue(
+                        InitializerClauseSyntax {
+                            $0.useEqual(SyntaxFactory.makeEqualToken(leadingTrivia: .spaces(1),
+                                                                     trailingTrivia: .spaces(1)))
+                            $0.useValue(gen(expr: rawValue))
                         }
                     )
                 }
