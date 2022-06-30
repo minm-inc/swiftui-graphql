@@ -14,7 +14,7 @@ import PackagePlugin
                 displayName: "Generate GraphQL types for \(inputFile.path.lastComponent)",
                 executable: tool.path,
                 arguments: ["--output", outputPath.string, "--schema", schema.string, inputFile.path.string],
-                inputFiles: [inputFile.path],
+                inputFiles: [inputFile.path, schema],
                 outputFiles: [outputPath])
         }
         let schemaOutputPath = context.pluginWorkDirectory.appending("schema.swift")
