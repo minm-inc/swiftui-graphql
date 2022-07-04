@@ -139,8 +139,8 @@ struct Codegen: AsyncParsableCommand {
         init(path: String?) {
             if let path = path {
                 let url = URL(fileURLWithPath: path)
-                guard FileManager.default.createFile(atPath: path, contents: nil) else {
-                    fatalError("Couldn't create a file to write to at \(path)")
+                if !FileManager.default.createFile(atPath: path, contents: nil) {
+                    print("Warning: Couldn't create file at path \(path), attempting to write anyway", to: &standardError)
                 }
                 handle = try! FileHandle(forWritingTo: url)
             } else {
