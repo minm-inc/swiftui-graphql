@@ -34,10 +34,10 @@ final class CacheTests: XCTestCase {
             ],
             conditional: [:]
         )
-        let existingCache: [CacheKey: CacheObject] = [
+        let existingCache: Cache.Store = [
             CacheKey(type: "Foo", id: "1"): [:]
         ]
-        let expectedCache: [CacheKey: CacheObject] = [
+        let expectedCache: Cache.Store = [
             CacheKey(type: "Foo", id: "1"): [
                 "__typename": .string("Foo"),
                 "id": .string("1"),
@@ -51,15 +51,23 @@ final class CacheTests: XCTestCase {
             ]
         ]
         let cache = Cache(store: existingCache)
-        let (_, changedObjs) = await cache.mergeCache(incoming: incoming,
-                                                      selection: selection,
-                                                      updater: nil)
+
+        let expectation = XCTestExpectation()
+        Task {
+            let changedKeys = try await cache.publisher.first().values.first()!.0
+            XCTAssertEqual(changedKeys, [
+                CacheKey(type: "Foo", id: "1"),
+                CacheKey(type: "Bar", id: "1")
+            ])
+            expectation.fulfill()
+        }
+
+        await cache.mergeCache(incoming: incoming,
+                               selection: selection,
+                               updater: nil)
+
         let store = await cache.store
         XCTAssertEqual(store, expectedCache)
-        XCTAssertEqual(Set(changedObjs.keys), [
-            CacheKey(type: "Foo", id: "1"),
-            CacheKey(type: "Bar", id: "1")
-        ])
     }
     
     func testCacheFieldsWithDifferentArguments() async {
@@ -83,7 +91,7 @@ final class CacheTests: XCTestCase {
             ],
             conditional: [:]
         )
-        let existingCache: [CacheKey: CacheObject] = [
+        let existingCache: Cache.Store = [
             CacheKey(type: "Foo", id: "1"): [
                 NameAndArgumentsKey(name: "bar", args: ["a": .boolean(true)]): .int(24)
             ]
@@ -122,7 +130,7 @@ final class CacheTests: XCTestCase {
             ],
             conditional: [:]
         )
-        let existingCache: [CacheKey: CacheObject] = [
+        let existingCache: Cache.Store = [
             CacheKey(type: "Foo", id: "1"): [
                 NameAndArgumentsKey(name: "bar", args: ["a": .boolean(true)]): .int(24)
             ]
@@ -167,7 +175,7 @@ final class CacheTests: XCTestCase {
             ],
             conditional: [:]
         )
-        let cache: [CacheKey: CacheObject] = [
+        let cache: Cache.Store = [
             CacheKey(type: "Root", id: "1"): [
                 "__typename": .string("Root"),
                 "id": .string("1"),
@@ -195,6 +203,37 @@ final class CacheTests: XCTestCase {
             ])
         ])
         XCTAssertEqual(actual, expected)
+    }
+
+    func testCacheUpdaterMarksKeysAsChanged() async {
+        let key = CacheKey(type: "Foo", id: "1")
+        let cache = Cache(store: [
+            key: [
+                "__typename": .string("Foo"),
+                "id": .string("1"),
+                "x": .int(42)
+            ]
+        ])
+        let selection = ResolvedSelection<Never>(
+            fields: ["foo": .init(name: "foo", arguments: [:], type: .named("Int"))],
+            conditional: [:]
+        )
+        let updater: Cache.Updater = { cacheObject, cache in
+            await cache.update(key, with: .update({ x in
+                guard case var .object(obj) = x else { fatalError() }
+                obj["x"] = .int(43)
+                return .object(obj)
+            }))
+        }
+
+        let expectation = XCTestExpectation()
+        Task {
+            let changedKeys = try await cache.publisher.first().values.first()!.0
+            XCTAssertEqual(changedKeys, [key])
+            expectation.fulfill()
+        }
+
+        await cache.mergeCache(incoming: ["foo": .int(42)], selection: selection, updater: updater)
     }
 
 //
@@ -235,4 +274,11 @@ final class CacheTests: XCTestCase {
 //         */
 //
 //    }
+}
+
+extension AsyncSequence {
+    func first() async throws -> Element? {
+        var iterator = makeAsyncIterator()
+        return try await iterator.next()
+    }
 }

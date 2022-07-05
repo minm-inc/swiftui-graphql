@@ -3,16 +3,13 @@ import Combine
 public actor Cache {
     public typealias Updater = ((CacheObject, Cache) async -> Void)
 
-    var store: [CacheKey: CacheObject]
-    let publisher = PassthroughSubject<(Set<CacheKey>, [CacheKey: CacheObject]), Never>()
-    init(store: [CacheKey: CacheObject] = [:]) {
+    let publisher = PassthroughSubject<(Set<CacheKey>, Store), Never>()
+
+    init(store: Store = [:]) {
         self.store = store
     }
 
-    @discardableResult
-    func mergeCache(incoming: [ObjectKey: Value], selection: ResolvedSelection<Never>, updater: Updater?) async -> (CacheObject, [CacheKey: CacheObject]) {
-        var changedObjs: [CacheKey: CacheObject] = [:]
-        
+    func mergeCache(incoming: [ObjectKey: Value], selection: ResolvedSelection<Never>, updater: Updater?) async {
         func normalize(object: [ObjectKey: Value], fields: [ObjectKey: ResolvedSelection<Never>.Field]) -> CacheObject {
             object.reduce(into: [:]) { acc, x in
                 let (objectKey, value) = x
@@ -46,17 +43,13 @@ public actor Cache {
                 guard let cacheKey = cacheKey(from: unrecursedObj, selection: selection) else {
                     return .object(normalizedObj)
                 }
-                
+
                 if let existingObj = store[cacheKey] {
                     // Update existing cached object
                     store[cacheKey] = mergeCacheObjects(existingObj, normalizedObj)
-                    if store[cacheKey] != existingObj {
-                        changedObjs[cacheKey] = store[cacheKey]
-                    }
                 } else {
                     // New addition to the cache
                     store[cacheKey] = normalizedObj
-                    changedObjs[cacheKey] = store[cacheKey]
                 }
                 return .reference(cacheKey)
             case let .string(x):
@@ -77,8 +70,7 @@ public actor Cache {
             fatalError()
         }
         await updater?(res, self)
-        publisher.send((Set(changedObjs.keys), store))
-        return (res, changedObjs)
+        flushChanges()
     }
     
     private func mergeCacheObjects(_ x: CacheObject, _ y: CacheObject) -> CacheObject {
@@ -141,10 +133,54 @@ public actor Cache {
         store[key] = obj
     }
 
+    class Store: ExpressibleByDictionaryLiteral, Equatable {
+        private var store: [CacheKey: CacheObject]
+        init(store: [CacheKey: CacheObject]) {
+            self.store = store
+        }
+
+        convenience init(dictionaryLiteral elements: (CacheKey, CacheObject)...) {
+            self.init(store: Dictionary(uniqueKeysWithValues: elements))
+        }
+
+        subscript(key: CacheKey) -> CacheObject? {
+            get {
+                store[key]
+            }
+            set {
+                if let existing = store[key], existing == newValue {
+                    // No change, don't bother
+                    return
+                }
+                changedKeys.insert(key)
+                store[key] = newValue
+            }
+        }
+
+        private var changedKeys: Set<CacheKey> = []
+
+        fileprivate func clearChangedKeys() -> Set<CacheKey> {
+            let x = changedKeys
+            changedKeys.removeAll()
+            return x
+        }
+
+        static func == (lhs: Store, rhs: Store) -> Bool {
+            lhs.store == rhs.store
+        }
+
+    }
+
+    let store: Store
+
+    private func flushChanges() {
+        publisher.send((store.clearChangedKeys(), store))
+    }
+
 }
     
 /// Takes a normalized cache object and expands all the references until it fulfills the selection
-func value(from cacheObject: CacheObject, selection: ResolvedSelection<Never>, cacheStore: [CacheKey: CacheObject]) -> [ObjectKey: Value] {
+func value(from cacheObject: CacheObject, selection: ResolvedSelection<Never>, cacheStore: Cache.Store) -> [ObjectKey: Value] {
     var res: [ObjectKey: Value] = [:]
     var fieldsToInclude = selection.fields
     if case .string(let typename) = cacheObject[NameAndArgumentsKey(name: "__typename")],
@@ -159,7 +195,7 @@ func value(from cacheObject: CacheObject, selection: ResolvedSelection<Never>, c
     return res
 }
 
-func value(from cacheValue: CacheValue, selection: ResolvedSelection<Never>?, cacheStore: [CacheKey: CacheObject]) -> Value {
+func value(from cacheValue: CacheValue, selection: ResolvedSelection<Never>?, cacheStore: Cache.Store) -> Value {
     switch cacheValue {
     case .reference(let ref):
         guard let selection = selection else {
@@ -330,7 +366,7 @@ public func cacheKey(from cacheValue: CacheValue) -> CacheKey? {
 }
 
 /// Given an existing value and the corresponding selection for that value, update any objects in it that may have changed from the cache.
-func update(value val: Value, selection: ResolvedSelection<Never>, changedKeys: Set<CacheKey>, cacheStore: [CacheKey: CacheObject]) -> Value {
+func update(value val: Value, selection: ResolvedSelection<Never>, changedKeys: Set<CacheKey>, cacheStore: Cache.Store) -> Value {
     switch val {
     case .object(let oldObj):
         let recursed = Dictionary(uniqueKeysWithValues: oldObj.compactMap { key, val -> (ObjectKey, Value)? in
