@@ -11,35 +11,31 @@ import SwiftUI
 
 public class GraphQLClient: ObservableObject {
     let cache = Cache()
-    
-    let endpoint: URL
-    let headerCallback: () -> [String: String]
-    let urlSession: URLSession
+
+    let transport: any Transport
     let scalarDecoder: any ScalarDecoder
     let errorCallback: (@MainActor (any Error) -> Bool)?
-    
-    public init(endpoint: URL,
-                urlSession: URLSession = .shared,
-                withHeaders headerCallback: @escaping () -> [String: String] = { [:] },
+
+    /// A convenience method for creating a client with a ``HTTPTransport``
+    public convenience init(endpoint: URL) {
+        self.init(transport: HTTPTransport(endpoint: endpoint))
+    }
+
+    public init(transport: any Transport,
                 onError errorCallback: (@MainActor (any Error) -> Bool)? = nil,
                 scalarDecoder: ScalarDecoder = FoundationScalarDecoder()) {
-        self.endpoint = endpoint
-        self.urlSession = urlSession
-        self.headerCallback = headerCallback
+        self.transport = transport
         self.errorCallback = errorCallback
         self.scalarDecoder = scalarDecoder
     }
     
     /// All requests to the server within a ``GraphQLClient`` should go through here, where it takes care of updating the cache and stuff.
     func query(query: String, selection: ResolvedSelection<String>, variables: [String: Value]?, cacheUpdater: Cache.Updater? = nil) async throws -> Value {
-        let queryReq = GraphQLRequest(query: query, variables: variables)
-        
         do {
-            guard case .object(let incoming) = try await makeRequest(queryReq,
-                                                                     response: Value.self,
-                                                                     endpoint: endpoint,
-                                                                     urlSession: urlSession,
-                                                                     headers: headerCallback()) else {
+            let response = try await transport.makeRequest(query: query,
+                                                           variables: variables ?? [:],
+                                                           response: Value.self)
+            guard case .data(.object(let incoming)) = response else {
                 throw GraphQLRequestError.invalidGraphQLResponse
             }
             
@@ -124,32 +120,36 @@ public class CacheTracked<Fragment: Cacheable>: ObservableObject {
 /// }
 /// ```
 public class MockGraphQLClient: GraphQLClient {
-    private let response: GraphQLResponse<Value>
+    private struct MockTransport: Transport {
+        let response: GraphQLResponse<Value>
+        func makeRequest<T: Decodable>(query: String, variables: [String : Value], response: T.Type) async throws -> GraphQLResponse<T> {
+            self.response as! GraphQLResponse<T>
+        }
+    }
     /// Create a mock GraphQL client that returns the response from a JSON file specified at the URL.
     public init(from url: URL) {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        response = try! decoder.decode(GraphQLResponse<Value>.self, from: Data(contentsOf: url))
-        super.init(endpoint: URL(string: "/")!)
+        let response = try! decoder.decode(GraphQLResponse<Value>.self, from: Data(contentsOf: url))
+        super.init(transport: MockTransport(response: response))
     }
-    
-    override func query(query: String, selection: ResolvedSelection<String>, variables: [String : Value]?, cacheUpdater: Cache.Updater? = nil) async throws -> Value {
-        switch response {
-        case .data(let value): return value
-        case .errors(_, let errors): throw GraphQLRequestError.graphqlError(errors)
-        }
+
+    public init(response: GraphQLResponse<Value>) {
+        super.init(transport: MockTransport(response: response))
     }
 }
 
-private class DummyGraphQLClient: GraphQLClient {
-    init() { super.init(endpoint: URL(string: "/")!) }
-    override func query(query: String, selection: ResolvedSelection<String>, variables: [String : Value]?, cacheUpdater: Cache.Updater? = nil) async throws -> Value {
-        fatalError("You need to set \\.graphqlClient somewhere in the environment hierarchy!")
+private class PlaceholderGraphQLClient: GraphQLClient {
+    struct PlaceholderTransport: Transport {
+        func makeRequest<T: Decodable>(query: String, variables: [String : Value], response: T.Type) async throws -> GraphQLResponse<T> {
+            fatalError("You need to set \\.graphqlClient somewhere in the environment hierarchy!")
+        }
     }
+    init() { super.init(transport: PlaceholderTransport()) }
 }
 
 struct GraphQLClientKey: EnvironmentKey {
-    static var defaultValue: GraphQLClient = DummyGraphQLClient()
+    static var defaultValue: GraphQLClient = PlaceholderGraphQLClient()
 }
 
 public extension EnvironmentValues {
@@ -157,4 +157,11 @@ public extension EnvironmentValues {
         get { self[GraphQLClientKey.self] }
         set { self[GraphQLClientKey.self] = newValue }
     }
+}
+
+public enum GraphQLRequestError: Error {
+    /// There were errors returned in the GraphQL response
+    case graphqlError([GraphQLError])
+    /// The server returned a badly-formed response
+    case invalidGraphQLResponse
 }
