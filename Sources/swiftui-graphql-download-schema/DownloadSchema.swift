@@ -18,8 +18,11 @@ struct DownloadSchema: AsyncParsableCommand {
     var output: String
     
     mutating func run() async throws {
-        let queryRequest = GraphQLRequest(query: getIntrospectionQuery(specifiedByURL: true))
-        let introspection = try await makeRequest(queryRequest, response: IntrospectionQuery.self, endpoint: endpoint)
+        let transport = HTTPTransport(endpoint: endpoint)
+        let response = try await transport.makeRequest(query: getIntrospectionQuery(specifiedByURL: true),
+                                                       variables: [:],
+                                                       response: IntrospectionQuery.self)
+        guard case .data(let introspection) = response else { fatalError("An error ocrred whilst introspecting the schema") }
         try JSONEncoder().encode(introspection).write(to: URL(fileURLWithPath: output))
     }
 }

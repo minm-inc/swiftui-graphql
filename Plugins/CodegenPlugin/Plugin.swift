@@ -1,8 +1,9 @@
 import Foundation
 import PackagePlugin
+import XcodeProjectPlugin
 
-@main struct CodegenPlugin: BuildToolPlugin {
-    func createBuildCommands(context: PluginContext, target: Target) async throws -> [Command] {
+@main struct CodegenPlugin: XcodeBuildToolPlugin {
+    func createBuildCommands(context: XcodePluginContext, target: XcodeTarget) throws -> [Command] {
         let tool = try context.tool(named: "swiftui-graphql-codegen")
         guard let target = target as? SourceModuleTarget else {
             return []
