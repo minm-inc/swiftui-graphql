@@ -250,6 +250,7 @@ public struct ObjectKey: Hashable, ExpressibleByStringLiteral, CodingKey, Codabl
 }
 
 public enum Value1<T>: Equatable, Hashable, QueryPrintable where T: Value1Param {
+    public typealias Object = [ObjectKey: Value1<T>]
     case variable(T)
     case boolean(Bool)
     case string(String)
@@ -257,7 +258,7 @@ public enum Value1<T>: Equatable, Hashable, QueryPrintable where T: Value1Param 
     case float(Double)
     case `enum`(String)
     case list([Value1<T>])
-    case object([ObjectKey: Value1<T>])
+    case object(Object)
     case null
     
     var printed: String {
@@ -347,6 +348,48 @@ extension Value1: Codable {
             self = .object(res)
 //            self = .object(try [ObjectKey: Value1<T>].init(from: decoder))
         }
+    }
+}
+
+extension Value1: ExpressibleByDictionaryLiteral {
+    public init(dictionaryLiteral elements: (ObjectKey, Value1)...) {
+        self = .object(Dictionary(uniqueKeysWithValues: elements))
+    }
+}
+
+extension Value1: ExpressibleByArrayLiteral {
+    public init(arrayLiteral elements: Value1...) {
+        self = .list(elements)
+    }
+}
+
+extension Value1: ExpressibleByStringLiteral {
+    public init(stringLiteral value: StringLiteralType) {
+        self = .string(value)
+    }
+}
+
+extension Value1: ExpressibleByIntegerLiteral {
+    public init(integerLiteral value: IntegerLiteralType) {
+        self = .int(value)
+    }
+}
+
+extension Value1: ExpressibleByBooleanLiteral {
+    public init(booleanLiteral value: BooleanLiteralType) {
+        self = .boolean(value)
+    }
+}
+
+extension Value1: ExpressibleByFloatLiteral {
+    public init(floatLiteral value: FloatLiteralType) {
+        self = .float(value)
+    }
+}
+
+extension Value1: ExpressibleByNilLiteral {
+    public init(nilLiteral: ()) {
+        self = .null
     }
 }
 
