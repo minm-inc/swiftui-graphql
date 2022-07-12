@@ -198,8 +198,8 @@ private class ObjectGenerator {
                     fatalError("TODO")
                 }
                 return [
-                    genEnumSwitchVarNested(key: key, type: field.type as! GraphQLCompositeType, cases: cases.keys),
-                    gen(object: nested, key: key, type: underlyingType(field.type) as! GraphQLCompositeType)
+                    genEnumSwitchVarNested(key: key, type: field.type as! any GraphQLCompositeType, cases: cases.keys),
+                    gen(object: nested, key: key, type: underlyingType(field.type) as! any GraphQLCompositeType)
                 ]
             } else {
                 return [genEnumSwitchVarLeaf(key: key, type: field.type, cases: cases.keys)]

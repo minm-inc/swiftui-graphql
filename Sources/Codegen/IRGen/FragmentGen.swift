@@ -107,7 +107,7 @@ class FragProtoGenerator {
             }
             let nestedFragmentObjects: [(FragmentProtocolPath, MergedObject)] =
                 fragmentObjects.compactMap { path, obj in
-                    if let fieldType = field.type.underlyingType as? GraphQLCompositeType,
+                    if let fieldType = field.type.underlyingType as? any GraphQLCompositeType,
                        let nestedObj = obj[key, onType: fieldType]?.nested {
                         return (path.appendingNestedObject(nestedObj, withKey: key), nestedObj)
                     } else {

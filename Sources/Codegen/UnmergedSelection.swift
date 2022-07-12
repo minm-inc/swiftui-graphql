@@ -66,9 +66,9 @@ private func makeUnmergedSelections(selectionSet: SelectionSet, parentType: any 
         case let .inlineFragment(inlineFragment):
             let type: any GraphQLCompositeType
             if let typeCondition = inlineFragment.typeCondition {
-                type = schema.getType(name: typeCondition.name.value)! as! GraphQLCompositeType
+                type = schema.getType(name: typeCondition.name.value)! as! any GraphQLCompositeType
             } else {
-                type = underlyingType(parentType) as! GraphQLCompositeType
+                type = underlyingType(parentType) as! any GraphQLCompositeType
             }
             return .fragment(.init(
                 name: nil,
