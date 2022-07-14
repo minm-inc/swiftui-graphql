@@ -18,7 +18,7 @@ public func genEnums(schema: GraphQLSchema) -> [DeclSyntax] {
                                      accessor: .get(.expr(.`self`)),
                                      access: .public)
                              ],
-                             conforms: ["String", "Hashable", "Codable", "CaseIterable", "Identifiable"],
+                             conforms: ["String", "Hashable", "Codable", "CaseIterable", "Identifiable", "Sendable"],
                              genericParameters: [])
         }.map(swiftGen.gen(decl:))
 }

@@ -31,7 +31,7 @@ func attach(operation: OperationDefinition, to decl: Decl, schema: GraphQLSchema
         extraDecls.append(.struct(
             name: "Variables",
             decls: [initializer] + variableDecls,
-            conforms: ["Encodable", "Equatable"]
+            conforms: ["Encodable", "Equatable", "Sendable"]
         ))
     }
     

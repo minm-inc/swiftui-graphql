@@ -211,13 +211,14 @@ class ProtocolConformance: Equatable {
     )
     private static let codable = ProtocolConformance(type: .plain("Codable"))
     private static let hashable = ProtocolConformance(type: .plain("Hashable"))
-    
+    private static let sendable = ProtocolConformance(type: .plain("Sendable"))
+
     /// The base protocol conformances that an object with the given set of fields will conform to
     static func baseConformances<T, U>(for fields: OrderedDictionary<String, SelectionField<T, U, any GraphQLOutputType>>) -> [ProtocolConformance] {
         if let field = fields["id"], field.name == "id", case .nonNull(.named("ID")) = graphqlTypeToSwiftUIGraphQLType(field.type) {
-            return [.cacheable]
+            return [.cacheable, .sendable]
         } else {
-            return [.codable, .hashable]
+            return [.codable, .hashable, .sendable]
         }
     }
     
