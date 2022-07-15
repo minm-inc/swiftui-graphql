@@ -10,13 +10,13 @@ import Foundation
 struct ValueDecoder {
     let scalarDecoder: any ScalarDecoder
     func decode<T: Decodable>(_ type: T.Type, from value: Value) throws -> T {
-        let decoder = ValueDecoderImpl(scalarDecoder: scalarDecoder, value: value)
+        let decoder = ValueDecoderImpl(codingPath: [], scalarDecoder: scalarDecoder, value: value)
         return try T.self.init(from: decoder)
     }
 }
 
 fileprivate struct ValueDecoderImpl: Decoder {
-    var codingPath: [CodingKey] = []
+    let codingPath: [CodingKey]
     
     var userInfo: [CodingUserInfoKey : Any] = [:]
     let scalarDecoder: any ScalarDecoder
@@ -25,7 +25,10 @@ fileprivate struct ValueDecoderImpl: Decoder {
     func container<Key>(keyedBy type: Key.Type) throws -> KeyedDecodingContainer<Key> where Key : CodingKey {
         switch value {
         case .object(let obj):
-            return KeyedDecodingContainer(KeyedContainer(scalarDecoder: scalarDecoder, object: obj, decoder: self))
+            return KeyedDecodingContainer(KeyedContainer(scalarDecoder: scalarDecoder,
+                                                         codingPath: codingPath,
+                                                         object: obj,
+                                                         decoder: self))
         default:
             throw DecodingError.typeMismatch([String: Value].self, DecodingError.Context(codingPath: codingPath, debugDescription: "TODO"))
         }
@@ -43,13 +46,32 @@ fileprivate struct ValueDecoderImpl: Decoder {
     struct UnkeyedContainer: UnkeyedDecodingContainer {
         let scalarDecoder: any ScalarDecoder
         let list: [Value]
-        var codingPath: [CodingKey]
+        var codingPath: [any CodingKey]
 
         var count: Int? { list.count }
 
         var isAtEnd: Bool { currentIndex >= count! }
 
         var currentIndex = 0
+
+        struct ListCodingKey: CodingKey {
+            var stringValue: String {
+                "Index \(index)"
+            }
+
+            init?(stringValue: String) {
+                nil
+            }
+
+            var intValue: Int? {
+                index
+            }
+
+            let index: Int
+            init?(intValue: Int) {
+                self.index = intValue
+            }
+        }
 
         mutating func decodeNil() throws -> Bool {
             let val = list[currentIndex]
@@ -59,7 +81,7 @@ fileprivate struct ValueDecoderImpl: Decoder {
 
         mutating func decode(_ type: Bool.Type) throws -> Bool {
             guard case .boolean(let x) = list[currentIndex] else {
-                throw DecodingError.typeMismatch(type, DecodingError.Context(codingPath: codingPath, debugDescription: "TODO"))
+                throw DecodingError.typeMismatch(type, DecodingError.Context(codingPath: currentCodingPath, debugDescription: "TODO"))
             }
             currentIndex += 1
             return x
@@ -67,7 +89,7 @@ fileprivate struct ValueDecoderImpl: Decoder {
         
         mutating func decode(_ type: String.Type) throws -> String {
             guard case .string(let x) = list[currentIndex] else {
-                throw DecodingError.typeMismatch(type, DecodingError.Context(codingPath: codingPath, debugDescription: "TODO"))
+                throw DecodingError.typeMismatch(type, DecodingError.Context(codingPath: currentCodingPath, debugDescription: "TODO"))
             }
             currentIndex += 1
             return x
@@ -75,7 +97,7 @@ fileprivate struct ValueDecoderImpl: Decoder {
         
         private mutating func decodeDouble() throws -> Double {
             guard case .float(let x) = list[currentIndex] else {
-                throw DecodingError.typeMismatch(Double.self, DecodingError.Context(codingPath: codingPath, debugDescription: "TODO"))
+                throw DecodingError.typeMismatch(Double.self, DecodingError.Context(codingPath: currentCodingPath, debugDescription: "TODO"))
             }
             currentIndex += 1
             return x
@@ -91,7 +113,7 @@ fileprivate struct ValueDecoderImpl: Decoder {
         
         private mutating func decodeFixedWidthInteger<T: FixedWidthInteger>() throws -> T {
             guard case .int(let x) = list[currentIndex] else {
-                throw DecodingError.typeMismatch(Int.self, DecodingError.Context(codingPath: codingPath, debugDescription: "TODO"))
+                throw DecodingError.typeMismatch(Int.self, DecodingError.Context(codingPath: currentCodingPath, debugDescription: "TODO"))
             }
             currentIndex += 1
             return T(x)
@@ -116,13 +138,18 @@ fileprivate struct ValueDecoderImpl: Decoder {
         mutating func decode(_ type: UInt32.Type) throws -> UInt32 { try decodeFixedWidthInteger() }
         
         mutating func decode(_ type: UInt64.Type) throws -> UInt64 { try decodeFixedWidthInteger() }
+
+        var currentCodingPath: [any CodingKey] {
+            codingPath + [ListCodingKey(intValue: currentIndex)!]
+        }
         
         mutating func decode<T>(_ type: T.Type) throws -> T where T : Decodable {
-            if let scalarDecoded = try decodeScalarWrappingError(ofType: type, value: list[currentIndex], codingPath: codingPath, scalarDecoder: scalarDecoder) {
+            
+            if let scalarDecoded = try decodeScalarWrappingError(ofType: type, value: list[currentIndex], codingPath: currentCodingPath, scalarDecoder: scalarDecoder) {
                 currentIndex += 1
                 return scalarDecoded
             } else {
-                let decoder = ValueDecoderImpl(codingPath: codingPath, scalarDecoder: scalarDecoder, value: list[currentIndex])
+                let decoder = ValueDecoderImpl(codingPath: currentCodingPath, scalarDecoder: scalarDecoder, value: list[currentIndex])
                 currentIndex += 1
                 return try T.init(from: decoder)
             }
@@ -130,19 +157,19 @@ fileprivate struct ValueDecoderImpl: Decoder {
         
 
         mutating func nestedContainer<NestedKey>(keyedBy type: NestedKey.Type) throws -> KeyedDecodingContainer<NestedKey> where NestedKey : CodingKey {
-            let decoder = ValueDecoderImpl(codingPath: codingPath, scalarDecoder: scalarDecoder, value: list[currentIndex])
+            let decoder = ValueDecoderImpl(codingPath: currentCodingPath, scalarDecoder: scalarDecoder, value: list[currentIndex])
             currentIndex += 1
             return try decoder.container(keyedBy: type)
         }
 
         mutating func nestedUnkeyedContainer() throws -> UnkeyedDecodingContainer {
-            let decoder = ValueDecoderImpl(codingPath: codingPath, scalarDecoder: scalarDecoder, value: list[currentIndex])
+            let decoder = ValueDecoderImpl(codingPath: currentCodingPath, scalarDecoder: scalarDecoder, value: list[currentIndex])
             currentIndex += 1
             return try decoder.unkeyedContainer()
         }
 
         mutating func superDecoder() throws -> Decoder {
-            let decoder = ValueDecoderImpl(codingPath: codingPath, scalarDecoder: scalarDecoder, value: list[currentIndex])
+            let decoder = ValueDecoderImpl(codingPath: currentCodingPath, scalarDecoder: scalarDecoder, value: list[currentIndex])
             currentIndex += 1
             return decoder
         }
@@ -155,7 +182,7 @@ fileprivate struct ValueDecoderImpl: Decoder {
     struct SingleValueContainer: SingleValueDecodingContainer {
         let scalarDecoder: any ScalarDecoder
         let value: Value
-        var codingPath: [CodingKey]
+        let codingPath: [CodingKey]
         
         func decodeNil() -> Bool {
             switch value {
@@ -236,7 +263,7 @@ fileprivate struct ValueDecoderImpl: Decoder {
     
     struct KeyedContainer<Key: CodingKey>: KeyedDecodingContainerProtocol {
         let scalarDecoder: any ScalarDecoder
-        var codingPath: [CodingKey] = []
+        let codingPath: [any CodingKey]
         var allKeys: [Key] = []
         
         let object: [ObjectKey: Value]
@@ -255,35 +282,35 @@ fileprivate struct ValueDecoderImpl: Decoder {
         
         func lookup(_ key: Key) throws -> Value {
             guard let x = object[ObjectKey(key.stringValue)] else {
-                throw DecodingError.keyNotFound(key, DecodingError.Context(codingPath: codingPath, debugDescription: "TODO"))
+                throw DecodingError.keyNotFound(key, DecodingError.Context(codingPath: codingPath + [key], debugDescription: "TODO"))
             }
             return x
         }
         
         func decode(_ type: Bool.Type, forKey key: Key) throws -> Bool {
             guard case .boolean(let x) = try lookup(key) else {
-                throw DecodingError.typeMismatch(type, DecodingError.Context(codingPath: codingPath, debugDescription: "TODO"))
+                throw DecodingError.typeMismatch(type, DecodingError.Context(codingPath: codingPath + [key], debugDescription: "TODO"))
             }
             return x
         }
         
         func decode(_ type: String.Type, forKey key: Key) throws -> String {
             guard case .string(let s) = try lookup(key) else {
-                throw DecodingError.typeMismatch(type, DecodingError.Context(codingPath: codingPath, debugDescription: "TODO"))
+                throw DecodingError.typeMismatch(type, DecodingError.Context(codingPath: codingPath + [key], debugDescription: "TODO"))
             }
             return s
         }
         
         private func decodeFloatingPoint<T: LosslessStringConvertible & BinaryFloatingPoint>(key: Key) throws -> T {
             guard case .float(let x) = try lookup(key) else {
-                throw DecodingError.typeMismatch(T.self, DecodingError.Context(codingPath: codingPath, debugDescription: "TODO"))
+                throw DecodingError.typeMismatch(T.self, DecodingError.Context(codingPath: codingPath + [key], debugDescription: "TODO"))
             }
             return T(x)
         }
         
         private func decodeFixedWidthInteger<T: FixedWidthInteger>(key: Key) throws -> T {
             guard case .int(let x) = try lookup(key) else {
-                throw DecodingError.typeMismatch(T.self, DecodingError.Context(codingPath: codingPath, debugDescription: "TODO"))
+                throw DecodingError.typeMismatch(T.self, DecodingError.Context(codingPath: codingPath + [key], debugDescription: "TODO"))
             }
             return T(x)
         }
@@ -313,10 +340,12 @@ fileprivate struct ValueDecoderImpl: Decoder {
         
         func decode<T>(_ type: T.Type, forKey key: Key) throws -> T where T : Decodable {
             let value = try lookup(key)
-            if let scalarDecoded = try decodeScalarWrappingError(ofType: type, value: value, codingPath: codingPath, scalarDecoder: scalarDecoder) {
+            if let scalarDecoded = try decodeScalarWrappingError(ofType: type, value: value, codingPath: codingPath + [key], scalarDecoder: scalarDecoder) {
                 return scalarDecoded
             } else {
-                return try T.init(from: ValueDecoderImpl(scalarDecoder: scalarDecoder, value: value))
+                return try T.init(from: ValueDecoderImpl(codingPath: codingPath + [key],
+                                                        scalarDecoder: scalarDecoder,
+                                                         value: value))
             }
         }
         
