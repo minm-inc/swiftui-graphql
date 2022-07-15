@@ -141,7 +141,7 @@ public class MockGraphQLClient: GraphQLClient {
 
 private class PlaceholderGraphQLClient: GraphQLClient {
     struct PlaceholderTransport: Transport {
-        func makeRequest<T: Decodable>(query: String, variables: [String : Value], response: T.Type) async throws -> GraphQLResponse<T> {
+        func makeRequest<T: Decodable>(query: String, variables: [String : Value]?, response: T.Type) async throws -> GraphQLResponse<T> {
             fatalError("You need to set \\.graphqlClient somewhere in the environment hierarchy!")
         }
     }

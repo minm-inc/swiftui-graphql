@@ -1,5 +1,5 @@
 public protocol Transport {
-    func makeRequest<T: Decodable>(query: String, variables: [String: Value], response: T.Type) async throws -> GraphQLResponse<T>
+    func makeRequest<T: Decodable>(query: String, variables: [String: Value]?, response: T.Type) async throws -> GraphQLResponse<T>
 }
 
 /// A well-formed GraphQL response, as defined per the specification

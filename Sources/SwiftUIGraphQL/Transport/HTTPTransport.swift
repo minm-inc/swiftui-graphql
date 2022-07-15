@@ -23,7 +23,7 @@ public struct HTTPTransport: Transport {
         }
     }
 
-    public func makeRequest<T: Decodable>(query: String, variables: [String : Value], response: T.Type) async throws -> GraphQLResponse<T> {
+    public func makeRequest<T: Decodable>(query: String, variables: [String : Value]?, response: T.Type) async throws -> GraphQLResponse<T> {
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
