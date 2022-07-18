@@ -37,16 +37,6 @@ public struct ExecutableDocument: QueryPrintable {
     }
 }
 
-extension String {
-    func indented(by numSpaces: Int) -> Self {
-        var newStr = ""
-        self.enumerateLines { line, stop in
-            newStr += Array(repeating: " ", count: numSpaces) + line
-        }
-        return newStr
-    }
-}
-
 public enum Definition: QueryPrintable {
     var printed: String {
         switch self {
@@ -208,11 +198,11 @@ extension Set: QueryPrintable where Element == Selection {
     }
 }
 
-public protocol Value1Param: Hashable, Encodable {
+public protocol Value1Param: Hashable, Encodable, Sendable {
     var variableString: String { get }
 }
 
-extension Never: Value1Param, Encodable {
+extension Never: Value1Param {
     public func encode(to encoder: Encoder) throws {
     }
     public var variableString: String { fatalError() }
@@ -226,7 +216,7 @@ extension String: Value1Param {
 ///
 /// This is equivalent to a ``String``, but is wrapped in a type to prevent confusion with ``FieldName``:
 /// An ``ObjectKey`` is the key of the field as returned in the object, and can be affected by field aliases.
-public struct ObjectKey: Hashable, ExpressibleByStringLiteral, CodingKey, Codable {
+public struct ObjectKey: Hashable, ExpressibleByStringLiteral, CodingKey, Codable, Sendable {
     private let key: String
     public init(stringLiteral value: String) {
         self.key = value
@@ -249,7 +239,7 @@ public struct ObjectKey: Hashable, ExpressibleByStringLiteral, CodingKey, Codabl
     }
 }
 
-public enum Value1<T>: Equatable, Hashable, QueryPrintable where T: Value1Param {
+public enum Value1<T: Value1Param>: Hashable, Sendable, QueryPrintable {
     public typealias Object = [ObjectKey: Value1<T>]
     case variable(T)
     case boolean(Bool)

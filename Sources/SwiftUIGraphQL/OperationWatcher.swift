@@ -1,5 +1,5 @@
 //
-//  Query.swift
+//  Operation.swift
 //  
 //
 //  Created by Luke Lau on 25/06/2021.
@@ -8,84 +8,69 @@
 import Combine
 import Foundation
 
-
 /// Watches the cache for any changes to the cache and updates its response
 @MainActor
-public class Operation<Response: Queryable>: ObservableObject {
-    private var response: Value? = nil {
-        didSet {
-            // Don't publish unecessary updates if nothing changed
-            if response == oldValue {
-                return
-            }
-            if let response {
-                result.data = try! ValueDecoder(scalarDecoder: client!.scalarDecoder).decode(Response.self, from: response)
-            } else {
-                result.data = nil
-            }
-        }
-    }
-
+public class OperationWatcher<Response: Operation>: ObservableObject {
     @Published public private(set) var result = GraphQLResult<Response>(data: nil, isFetching: true, error: nil)
+    private var currentValue: Value?
 
-    private var variables: Response.Variables?
-    
-    private var cacheSink: AnyCancellable?
-    
-    var client: GraphQLClient? {
-        didSet {
-            guard let client else {
-                self.cacheSink?.cancel()
-                self.cacheSink = nil
-                return
-            }
-            if oldValue === client { return }
-            self.cacheSink = client.cache.publisher
-                .receive(on: DispatchQueue.main)
-                .sink { [unowned self] (changedKeys, cacheStore) in
-                    guard let response = self.response else {
-                        return
-                    }
-                    // TODO: self.variables here smells like a race condition
-                    let selection = substituteVariables(in: Response.selection, variableDefs: variablesToObject(self.variables) ?? [:])
-                    self.response = update(value: response, selection: selection, changedKeys: changedKeys, cacheStore: cacheStore)
-                }
-        }
-    }
+    private var listenTask: Task<Void, Never>?
+    var cachePolicy: GraphQLClient.CachePolicy?
+    var cacheUpdater: Cache.Updater?
+    var client: GraphQLClient!
 
-    var mergePolicy: MergePolicy? = nil
-    var cacheUpdater: Cache.Updater? = nil
-    
     @MainActor
     @discardableResult
-    func execute(variables: Response.Variables) async throws -> Response {
-        guard let client = client else { fatalError("Client not set") }
-        self.variables = variables
-        
-        let variablesObj = variablesToObject(variables)
-        var incoming: Value
+    func execute(variables: Response.Variables, mergePolicy: MergePolicy? = nil) async throws -> Response {
+        listenTask?.cancel()
+
+        var iterator = await client.watch(query: Response.query,
+                                          selection: Response.selection,
+                                          variables: variablesToObject(variables),
+                                          isMutation: isMutationOperationType(Response.self),
+                                          cachePolicy: cachePolicy ?? .cacheFirstElseNetwork,
+                                          cacheUpdater: cacheUpdater).makeAsyncIterator()
+
+        @discardableResult
+        func receivedIncoming(_ value: Value) -> Response {
+            var value = value
+            if let mergePolicy {
+                value = mergePolicy.merge(existing: currentValue, incoming: value)
+            }
+            let decodedResponse = try! ValueDecoder(scalarDecoder: client.scalarDecoder).decode(Response.self, from: value)
+            result = GraphQLResult(data: decodedResponse, isFetching: false, error: nil)
+
+            currentValue = value
+
+            return decodedResponse
+        }
+
         do {
             result.isFetching = true
-            incoming = try await client.query(query: Response.query, selection: Response.selection, variables: variablesObj, cacheUpdater: cacheUpdater)
-            result.isFetching = false
-            if let mergePolicy {
-                incoming = mergePolicy.merge(existing: response, incoming: incoming)
+            let initialResponse = receivedIncoming(try await iterator.next()!)
+
+            listenTask = Task {
+                do {
+                    while let incoming = try await iterator.next() {
+                        receivedIncoming(incoming)
+                    }
+                } catch {
+                    result = GraphQLResult(data: result.data, isFetching: false, error: error)
+                }
             }
-            self.response = incoming
-            result.error = nil
+
+            return initialResponse
         } catch {
-            result.error = error
-            result.isFetching = false
+            result = GraphQLResult(data: result.data, isFetching: false, error: error)
             throw error
         }
-        return try! ValueDecoder(scalarDecoder: client.scalarDecoder).decode(Response.self, from: incoming)
     }
     
     @discardableResult
     public func callAsFunction(_ variables: Response.Variables) async throws -> Response {
         try await execute(variables: variables)
     }
-    
+
     @discardableResult
     public func callAsFunction() async throws -> Response where Response.Variables == NoVariables {
         try await callAsFunction(NoVariables())
@@ -155,4 +140,3 @@ public struct MergePolicy: ExpressibleByDictionaryLiteral {
         return res
     }
 }
-

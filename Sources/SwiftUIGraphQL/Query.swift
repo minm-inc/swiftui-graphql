@@ -10,14 +10,15 @@ import Combine
 import SwiftUI
 
 @propertyWrapper
-public struct Query<Response: Queryable>: DynamicProperty {
+public struct Query<Response: QueryOperation>: DynamicProperty {
     // Need DynamicProperty in order to access the environment
     @Environment(\.graphqlClient) public var client: GraphQLClient
     @StateObject private var request = Request()
     
     @MainActor
     public class Request: ObservableObject {
-        fileprivate let operation = Operation<Response>()
+        fileprivate var mergePolicy: MergePolicy?
+        fileprivate let operation = OperationWatcher<Response>()
         private var needsRefetch = true
         fileprivate var _variables: Response.Variables! {
             didSet {
@@ -45,25 +46,31 @@ public struct Query<Response: Queryable>: DynamicProperty {
             needsRefetch = false
         }
         
-        public func execute() async {
-            do { try await operation.execute(variables: variables) }
+        public func execute(variables: Response.Variables, mergePolicy: MergePolicy?) async {
+            do { try await operation.execute(variables: variables, mergePolicy: mergePolicy) }
             catch {}
+        }
+
+        public func execute() async {
+            await execute(variables: self.variables, mergePolicy: self.mergePolicy)
         }
     }
     
     private let variables: Response.Variables
     private let mergePolicy: MergePolicy?
+    private let cachePolicy: GraphQLClient.CachePolicy
     
-    public init(variables: Response.Variables, mergePolicy: MergePolicy? = nil) {
+    public init(variables: Response.Variables, cachePolicy: GraphQLClient.CachePolicy = .cacheFirstElseNetwork, mergePolicy: MergePolicy? = nil) {
         self.variables = variables
         self.mergePolicy = mergePolicy
+        self.cachePolicy = cachePolicy
     }
     
     // Note: We'd love to add a default value of nil for mergePolicy, but there is a bug
     // that prevents us from manually instantiating the property wrapper:
     // https://github.com/apple/swift/issues/55019
-    public init(mergePolicy: MergePolicy?) where Response.Variables == NoVariables {
-        self.init(variables: NoVariables(), mergePolicy: mergePolicy)
+    public init(cachePolicy: GraphQLClient.CachePolicy = .cacheFirstElseNetwork, mergePolicy: MergePolicy?) where Response.Variables == NoVariables {
+        self.init(variables: NoVariables(), cachePolicy: cachePolicy, mergePolicy: mergePolicy)
     }
 
     public var wrappedValue: GraphQLResult<Response> {
@@ -76,8 +83,9 @@ public struct Query<Response: Queryable>: DynamicProperty {
     
     public func update() {
         request._variables = variables
-        request.operation.mergePolicy = mergePolicy
         request.operation.client = client
+        request.operation.cachePolicy = cachePolicy
+        request.mergePolicy = mergePolicy
         request.executeIfNeeded()
     }
 }

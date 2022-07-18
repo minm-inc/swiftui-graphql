@@ -1,5 +1,5 @@
 import SwiftUIGraphQL
-struct AnonymousQuery: Queryable, Codable {
+struct AnonymousQuery: QueryOperation, Codable {
     let a: A?
     enum A: Codable {
         case impl(Impl)

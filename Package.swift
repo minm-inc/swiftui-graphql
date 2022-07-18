@@ -44,7 +44,11 @@ let package = Package(
             dependencies: []),
         .testTarget(
             name: "SwiftUIGraphQLTests",
-            dependencies: ["SwiftUIGraphQL"]),
+            dependencies: [
+                "SwiftUIGraphQL",
+                "Codegen",
+                .product(name: "GraphQL", package: "GraphQL"),
+            ]),
         .target(name: "Codegen", dependencies: [
             "SwiftUIGraphQL",
             .product(name: "SwiftSyntax", package: "swift-syntax"),
@@ -58,7 +62,11 @@ let package = Package(
             dependencies: ["Codegen"],
             resources: [Resource.copy("Cases")]
         ),
-        .plugin(name: "CodegenPlugin", capability: .buildTool(), dependencies: ["swiftui-graphql-codegen"]),
+        .plugin(
+            name: "CodegenPlugin",
+            capability: .buildTool(),
+            dependencies: ["swiftui-graphql-codegen"]
+        ),
         .executableTarget(name: "swiftui-graphql-download-schema", dependencies: [
             "SwiftUIGraphQL",
             .product(name: "GraphQL", package: "GraphQL"),

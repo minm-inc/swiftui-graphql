@@ -261,7 +261,7 @@ private struct SelectionMerger {
 
 }
 
-fileprivate extension String {
+extension String {
     func indented(by spaces: Int = 2) -> String {
         split(separator: "\n")
             .map { Array(repeating: " ", count: spaces) + $0}

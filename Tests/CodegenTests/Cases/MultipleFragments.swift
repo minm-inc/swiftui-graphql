@@ -1,5 +1,5 @@
 import SwiftUIGraphQL
-struct AnonymousQuery: Queryable, Codable, FooFragment, BarFragment, BazFragment {
+struct AnonymousQuery: QueryOperation, Codable, FooFragment, BarFragment, BazFragment {
     let a: A?
     struct A: Codable, FooFragmentA, BarFragmentA {
         let b1: Int?

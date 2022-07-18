@@ -10,7 +10,7 @@ import Combine
 import SwiftUI
 
 public class GraphQLClient: ObservableObject {
-    let cache = Cache()
+    public let cache = Cache()
 
     let transport: any Transport
     let scalarDecoder: any ScalarDecoder
@@ -28,19 +28,158 @@ public class GraphQLClient: ObservableObject {
         self.errorCallback = errorCallback
         self.scalarDecoder = scalarDecoder
     }
+
+    public enum CachePolicy : Sendable{
+        case cacheFirstElseNetwork
+        case cacheFirstThenNetwork
+        case networkOnly
+    }
+
+    public struct QueryWatcher<Element>: AsyncSequence {
+        typealias CacheListener = AsyncMapSequence<AsyncStream<[ObjectKey : Value]?>, Element?>
+        let cacheListener: CacheListener
+        typealias Resolver = @Sendable () async throws -> Element?
+        let cacheResolver: Resolver
+        let networkResolver: Resolver
+        let cachePolicy: CachePolicy
+
+
+        public func makeAsyncIterator() -> AsyncIterator {
+            AsyncIterator(cacheIterator: cacheListener,
+                          cacheResolver: cacheResolver,
+                          networkResolver: networkResolver,
+                          cachePolicy: cachePolicy)
+        }
+
+        public struct AsyncIterator: AsyncIteratorProtocol {
+            internal init(cacheIterator: CacheListener,
+                          cacheResolver: @escaping Resolver,
+                          networkResolver: @escaping Resolver,
+                          cachePolicy: GraphQLClient.CachePolicy) {
+                self.cacheIterator = cacheIterator.makeAsyncIterator()
+                self.cacheResolver = cacheResolver
+                self.networkResolver = networkResolver
+                self.cachePolicy = cachePolicy
+            }
+
+            var cacheIterator: CacheListener.AsyncIterator
+            let cacheResolver: Resolver
+            let networkResolver: Resolver
+            let cachePolicy: CachePolicy
+
+            private var triedCache = false
+            private var triedNetwork = false
+
+            public mutating func next() async throws -> Element? {
+                if Task.isCancelled { return nil }
+
+                switch cachePolicy {
+                case .cacheFirstElseNetwork:
+                    if !triedCache {
+                        triedCache = true
+                        if let cacheHit = try await cacheResolver() {
+                            return cacheHit
+                        } else {
+                            return try await networkResolver()
+                        }
+                    } else {
+                        return try await changesResolver()
+                    }
+                case .cacheFirstThenNetwork:
+                    if !triedCache {
+                        triedCache = true
+                        return try await cacheResolver()
+                    } else if !triedNetwork {
+                        triedNetwork = true
+                        return try await networkResolver()
+                    } else {
+                        return try await changesResolver()
+                    }
+                case .networkOnly:
+                    if !triedNetwork {
+                        triedNetwork = true
+                        return try await networkResolver()
+                    } else {
+                        return try await changesResolver()
+                    }
+                }
+            }
+
+            private mutating func changesResolver() async throws -> Element? {
+                let next = await cacheIterator.next()
+                switch next {
+                case .none:
+                    // The listener finished
+                    return nil
+                case .some(.none):
+                    // The cache was invalidated: fetch from network
+                    return try await networkResolver()
+                case .some(.some(let next)):
+                    // The cache was updated
+                    return next
+                }
+            }
+        }
+    }
+
+    func watch(query: String, selection: ResolvedSelection<String>, variables: [String: Value]?, isMutation: Bool, cachePolicy: CachePolicy, cacheUpdater: Cache.Updater?) async -> QueryWatcher<Value> {
+        let resolvedSelection = substituteVariables(in: selection, variableDefs: variables)
+
+        let cacheResolver = { @Sendable in
+            await self.cache.value(from: self.cache.store[.queryRoot]!, selection: resolvedSelection).map { Value.object($0) }
+        }
+        let networkResolver = { @Sendable in
+            try await self.execute(query: query,
+                                   selection: selection,
+                                   variables: variables,
+                                   isMutation: isMutation,
+                                   cacheUpdater: cacheUpdater)
+        }
+        let cacheListener = await cache.listenToChanges(selection: resolvedSelection, on: .queryRoot).map { $0.map { Value.object($0) } }
+
+        return QueryWatcher<Value>(cacheListener: cacheListener,
+                                   cacheResolver: cacheResolver,
+                                   networkResolver: networkResolver,
+                                   cachePolicy: cachePolicy)
+    }
+
+    public func watch<T: Operation>(_ operation: T.Type,
+                                    variables: T.Variables,
+                                    cachePolicy: CachePolicy = .cacheFirstElseNetwork,
+                                    cacheUpdater: Cache.Updater? = nil) async -> AsyncMapSequence<GraphQLClient.QueryWatcher<Value>, T> {
+        return await watch(query: T.query,
+                           selection: T.selection,
+                           variables: variablesToObject(variables),
+                           isMutation: isMutationOperationType(operation),
+                           cachePolicy: cachePolicy,
+                           cacheUpdater: cacheUpdater).map {
+            try! ValueDecoder(scalarDecoder: self.scalarDecoder).decode(T.self, from: $0)
+        }
+    }
+
+    public func watch<T: Operation>(_ operation: T.Type,
+                                    cachePolicy: CachePolicy = .cacheFirstElseNetwork,
+                                    cacheUpdater: Cache.Updater? = nil) async -> AsyncMapSequence<GraphQLClient.QueryWatcher<Value>, T> where T.Variables == NoVariables {
+        await watch(operation, variables: NoVariables(), cachePolicy: cachePolicy, cacheUpdater: cacheUpdater)
+    }
     
+    // TODO: Make the API surface nicer: potentially generate the selection from just the query string, or only take in selection + variables
     /// All requests to the server within a ``GraphQLClient`` should go through here, where it takes care of updating the cache and stuff.
-    func query(query: String, selection: ResolvedSelection<String>, variables: [String: Value]?, cacheUpdater: Cache.Updater? = nil) async throws -> Value {
+    private func execute(query: String, selection: ResolvedSelection<String>, variables: [String: Value]?, isMutation: Bool, cacheUpdater: Cache.Updater?) async throws -> Value {
         do {
             let response = try await transport.makeRequest(query: query,
-                                                           variables: variables ?? [:],
+                                                           variables: variables,
                                                            response: Value.self)
             guard case .data(.object(let incoming)) = response else {
                 throw GraphQLRequestError.invalidGraphQLResponse
             }
             
-            let selection = substituteVariables(in: selection, variableDefs: variables ?? [:])
-            await cache.mergeCache(incoming: incoming, selection: selection, updater: cacheUpdater)
+            let selection = substituteVariables(in: selection, variableDefs: variables)
+            if isMutation {
+                await cache.mergeMutation(incoming, selection: selection, updater: cacheUpdater)
+            } else {
+                await cache.mergeQuery(incoming, selection: selection, updater: cacheUpdater)
+            }
             
             return .object(incoming)
         } catch {
@@ -48,10 +187,11 @@ public class GraphQLClient: ObservableObject {
                 errorCallback?(error) ?? false
             }
             if shouldRetry {
-                return try await self.query(query: query,
-                                            selection: selection,
-                                            variables: variables,
-                                            cacheUpdater: cacheUpdater)
+                return try await self.execute(query: query,
+                                              selection: selection,
+                                              variables: variables,
+                                              isMutation: isMutation,
+                                              cacheUpdater: cacheUpdater)
             } else {
                 throw error
             }
@@ -59,10 +199,18 @@ public class GraphQLClient: ObservableObject {
     }
     
     
-    public func query<T: Queryable>(_ queryable: T.Type, variables: T.Variables) async throws -> T {
-        let decodedData = try await query(query: T.query, selection: T.selection, variables: variablesToObject(variables))
-        // Use a try! here because failing to decode a Queryable from a Value is a programming error
+    public func execute<T: Operation>(_ operation: T.Type, variables: T.Variables, cacheUpdater: Cache.Updater? = nil) async throws -> T {
+        let decodedData = try await execute(query: T.query,
+                                            selection: T.selection,
+                                            variables: variablesToObject(variables),
+                                            isMutation: isMutationOperationType(operation),
+                                            cacheUpdater: cacheUpdater)
+        // Use a try! here because failing to decode an Operation from a Value is a programming error
         return try! ValueDecoder(scalarDecoder: scalarDecoder).decode(T.self, from: decodedData)
+    }
+
+    public func execute<T: Operation>(_ operation: T.Type, cacheUpdater: Cache.Updater? = nil) async throws -> T where T.Variables == NoVariables {
+        return try await execute(operation, variables: NoVariables(), cacheUpdater: cacheUpdater)
     }
 }
 
@@ -79,64 +227,6 @@ func variablesToObject<Variables: Encodable>(_ variables: Variables) -> [String:
         fatalError("Invalid variables type")
     }
     return res
-}
-
-
-public class CacheTracked<Fragment: Cacheable>: ObservableObject {
-    @Published public private(set) var fragment: Fragment
-    private var cancellable: AnyCancellable? = nil
-    public init(fragment: Fragment, variableDefs: [String: Value], client: GraphQLClient) {
-        self.fragment = fragment
-        cancellable = client.cache.publisher.receive(on: RunLoop.main).sink { (changedKeys, store) in
-            let cacheKey = CacheKey(type: fragment.__typename, id: fragment.id)
-            let cacheObject = store[cacheKey]!
-            let selection = substituteVariables(in: Fragment.selection, variableDefs: variableDefs)
-            let value = value(from: .object(cacheObject), selection: selection, cacheStore: store)
-            self.fragment = try! ValueDecoder(scalarDecoder: client.scalarDecoder).decode(Fragment.self, from: value)
-        }
-    }
-    
-    /// Initializes a static fragment definition. Useful for in testing.
-    public init(fragment: Fragment) {
-        self.fragment = fragment
-    }
-}
-
-/// A mock ``GraphQLClient`` that can be initialized with a canned JSON response for use in Xcode Previews and testing.
-///
-/// To use it, set a ``MockGraphQLClient`` as the environment value for the `graphqlClient` environment key.
-/// Any ``Query``s in the view hierarchy will then use the response for their ``GraphQLResult``.
-///
-/// A convenient pattern is to store your prepared mock JSON responses in a folder somewhere in your app, then add it to your target's [development assets](https://developer.apple.com/wwdc19/233?time=984).
-/// Then you can access it from the main bundle:
-/// ```swift
-/// struct Library_Previews: PreviewProvider {
-///     static var previews: some View {
-///         MyView()
-///             .environment(\.graphqlClient,
-///                          MockGraphQLClient(from: Bundle.main.url(forResource: "queryResponse",
-///                                                                  withExtension: "json")!))
-///     }
-/// }
-/// ```
-public class MockGraphQLClient: GraphQLClient {
-    private struct MockTransport: Transport {
-        let response: GraphQLResponse<Value>
-        func makeRequest<T: Decodable>(query: String, variables: [String : Value], response: T.Type) async throws -> GraphQLResponse<T> {
-            self.response as! GraphQLResponse<T>
-        }
-    }
-    /// Create a mock GraphQL client that returns the response from a JSON file specified at the URL.
-    public init(from url: URL) {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let response = try! decoder.decode(GraphQLResponse<Value>.self, from: Data(contentsOf: url))
-        super.init(transport: MockTransport(response: response))
-    }
-
-    public init(response: GraphQLResponse<Value>) {
-        super.init(transport: MockTransport(response: response))
-    }
 }
 
 private class PlaceholderGraphQLClient: GraphQLClient {
@@ -165,3 +255,10 @@ public enum GraphQLRequestError: Error {
     /// The server returned a badly-formed response
     case invalidGraphQLResponse
 }
+
+func isMutationOperationType(_ type: (some Operation).Type) -> Bool {
+    type.self is any MutationOperation.Type
+}
+
+
+extension GraphQLClient.QueryWatcher: Sendable where Element: Sendable {}

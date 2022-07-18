@@ -105,7 +105,7 @@ import XCTest
 //                conforms: ["Codable"]
 //            ),
 //            .staticLetString(name: "query", literal: document.printed)
-//        ], conforms: ["Queryable", "Codable"]))
+//        ], conforms: ["QueryOperation", "Codable"]))
 //    }
 //    
 //    func testNestedObjectsOnFragment() {
@@ -205,7 +205,7 @@ import XCTest
 //                ),
 //                .staticLetString(name: "query", literal: " {\nfoo {\n...Blah\n}\n}\nfragment Blah on Foo {\ne {\nbaz {\nj\n}\n}\n}\n")
 //            ],
-//            conforms: ["Queryable", "Codable"])
+//            conforms: ["QueryOperation", "Codable"])
 //        )
 //    }
 //    

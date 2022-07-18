@@ -41,6 +41,11 @@ public struct ResolvedSelection<Variables: Value1Param> {
 public extension ResolvedSelection where Variables == String {
     /// A selection that contains nothing. You'd never see this in the wild but it's useful for making test structs that conform to fragments
     static let empty = ResolvedSelection<String>(fields: [:], conditional: [:])
+
+    /// Converts to a variable-less ``ResolvedSelection``, trapping if there are variables.
+    var assumingNoVariables: ResolvedSelection<Never> {
+        substituteVariables(in: self, variableDefs: [:])
+    }
 }
 
 func findField<T>(key: ObjectKey, onType typename: String?, in selection: ResolvedSelection<T>) -> ResolvedSelection<T>.Field? {
@@ -51,12 +56,12 @@ func findField<T>(key: ObjectKey, onType typename: String?, in selection: Resolv
     }
 }
 
-func substituteVariables(in selection: ResolvedSelection<String>, variableDefs: [String: Value]) -> ResolvedSelection<Never> {
+func substituteVariables(in selection: ResolvedSelection<String>, variableDefs: [String: Value]?) -> ResolvedSelection<Never> {
     ResolvedSelection(
-        fields: selection.fields.mapValues { substituteVariables(in: $0, variableDefs: variableDefs) },
+        fields: selection.fields.mapValues { substituteVariables(in: $0, variableDefs: variableDefs ?? [:]) },
         conditional: selection.conditional.mapValues {
             $0.mapValues {
-                substituteVariables(in: $0, variableDefs: variableDefs)
+                substituteVariables(in: $0, variableDefs: variableDefs ?? [:])
             }
         }
     )
@@ -95,5 +100,40 @@ private func substituteVariables(in value: NonConstValue, variableDefs: [String:
         return .list(xs.map { substituteVariables(in: $0, variableDefs: variableDefs) })
     case .null:
         return .null
+    }
+}
+
+
+extension ResolvedSelection: CustomDebugStringConvertible {
+    public var debugDescription: String {
+        [
+            "{",
+            debugDescriptionForFields(fields).indented(),
+            conditional.map { type, fields in
+                "... on \(type) {\n" + debugDescriptionForFields(fields) + "\n}"
+            }.joined(separator: "\n").indented(),
+            "}"
+        ].joined(separator: "\n")
+    }
+
+    private func debugDescriptionForFields(_ fields: [ObjectKey: Field]) -> String {
+        fields.map { key, field in
+            var s = key.stringValue
+            if field.name.name != key.stringValue {
+                s += ": " + field.name.name
+            }
+            if let nested = field.nested {
+                s += " " + nested.debugDescription
+            }
+            return s
+        }.joined(separator: "\n")
+    }
+}
+
+extension String {
+    func indented(by spaces: Int = 2) -> String {
+        split(separator: "\n")
+            .map { Array(repeating: " ", count: spaces) + $0}
+            .joined(separator: "\n")
     }
 }

@@ -25,7 +25,11 @@ public protocol Selectable {
     static var selection: ResolvedSelection<String> { get }
 }
 
-public protocol Queryable: Codable, Selectable {
+public protocol Operation: Codable, Selectable {
     static var query: String { get }
     associatedtype Variables = NoVariables where Variables: Encodable & Equatable
 }
+
+public protocol QueryOperation: Operation {}
+
+public protocol MutationOperation: Operation {}

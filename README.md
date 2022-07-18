@@ -1,28 +1,82 @@
-# swiftui-graphql
+# SwiftUIGraphQL
 
-A GraphQL client for SwiftUI apps.
+SwiftUIGraphQL is a GraphQL client designed for declarative data fetching, and works alongside declarative UIs written with SwiftUI.
+
+```swift
+struct MyView: View {
+    @Query var query: GraphQLResult<AlbumQuery>
+    var body: some View {
+        if let user = query.data {
+            Text("Hello \(user.name)")
+        }
+    }
+}
+```
+
+It features two main components:
+
+**Code generation** that produces Swift type for your queries, mutations and fragments, so that you get compile-time type-safety whilst using your schema.
+
+
+**A client library**, SwiftUIGraphQL, that lets you easily build views in SwiftUI that are automatically kept up to date with your queries.
+
+
+## Installation
+
+First you need to set up code generation.
+You can either run the `swiftui-graphql-codegen` executable as a custom Xcode build rule for your `.graphql` files
+
+Or you can use it as a Swift package manager build tool plugin.
+To use with Xcode's build system, create a Swift package inside your project and place your `.graphql` files inside it.
+
+```swift
+// swift-tools-version: 5.7
+
+import PackageDescription
+
+let package = Package(
+    name: "MyAppGraphQL",
+    platforms: [.iOS("15.0"), .macOS("12.0")],
+    products: [.library( name: "MyAppGraphQL", targets: ["MyAppGraphQL"])],
+    dependencies: [.package(url: "https://github.com/minm-inc/swiftui-graphql.git", branch: "main")],
+    targets: [
+        .target(
+            name: "MyAppGraphQL",
+            dependencies: [.product(name: "SwiftUIGraphQL", package: "swiftui-graphql")],
+            plugins: [.plugin(name: "SwiftUIGraphQLCodegenPlugin", package: "swiftui-graphql")]),
+    ]
+)
+
+```
+
+Then somewhere near the root of your view heirarchy, install a `GraphQLClient` in the environment:
+
+```swift
+struct Minm: App {
+    @StateObject var graphqlClient = GraphQLClient(endpoint: "https://graphql.org/swapi-graphql")
+    var body: some Scene {
+        WindowGroup {
+            ContentView()
+                .environment(\.graphqlClient, graphqlClient)
+        }
+    }
+}
+```
+
+(Note, **don't use an `EnvironmentObject`**. Plain old environment values are used so that we can sub in mock clients later for testing and design time)
 
 ## Code generation
-swiftui-graphql generates Swift types for your queries, mutations and fragments.
-To use it, you can either run the `swiftui-graphql-codegen` executable as a custom Xcode build rule for your `.graphql` files
 
-Or you can use it as a Swift package manager build tool plugin. 
+For each query you define, SwiftUIGraphQL generates structs and enums that directly map to the corresponding data returned in the query response. 
 
-It generates fragments as protocols, so you can write your views generically and reuse them in multiple places without the need for existentials:
-
-
-# Code generation
-
-Code generation generates structs that can be decoded directly from the resulting JSON output, as well as encoded back into GraphQL values for caching.
-
-Here's the swift code a simple query might generate:
+Here's the Swift code a simple query would generate:
 
 ```graphql
 {
     recentReleases {
         nodes {
             title
-            artworkUrl
+            artwork
             artist {
                 name
             }
@@ -32,23 +86,42 @@ Here's the swift code a simple query might generate:
 ```
 
 ```swift
-struct ExploryQuerySpecimen2: Queryable, Codable {
+struct ExploryQuerySpecimen2: QueryOperation {
     static let query: String = "..."
+    static let selection: ResolvedSelection<String> = ...
     
-    let recentReleases: AlbumConnection
-    struct AlbumConnection: Codable {
-        let nodes: [Album?]?
-        struct Album: Codable {
+    let recentReleases: RecentReleases
+    struct RecentReleases: Codable {
+        let nodes: [Nodes?]?
+        struct Nodes: Codable {
             let id: ID
             let __typename: String
             let title: String
-            let artworkUrl: String
+            let artwork: URL
             let artist: Artist
             struct Artist: Codable {
                 let id: ID
                 let __typename: String
                 let name: String
             }
+        }
+    }
+}
+```
+
+Scalars are mapped to their counterparts in Foundation by default, based off of the scalar's `specifiedByURL` property in the schema.
+So in this example, because `artwork` was specified by [RFC1738](https://tools.ietf.org/html/rfc1738), it gets decoded to `URL` automatically.
+You can write custom decoders for your own scalars with the `ScalarDecoder` protocol.
+
+It also generates *fragments as protocols*, which means that you can write generic views based off of fragments without the need for any existential types:
+
+```swift
+struct UserBadge<Fragment: UserBadgeFragment>: View {
+    let user: Fragment
+    var body: some View {
+        VStack {
+            AsyncImage(url: user.avatar)
+            Text(user.name)
         }
     }
 }
@@ -293,5 +366,5 @@ To run the tests from Xcode, you need to create a link to the SwiftSyntax lib:
 ```bash
 ln -s \
  /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain//usr/lib/swift/macosx/lib_InternalSwiftSyntaxParser.dylib \
- /Users/luke/Library/Developer/Xcode/DerivedData/Minm-*/Build/Products/Debug
+ /Users/luke/Library/Developer/Xcode/DerivedData/swiftui-graphql-*/Build/Products/Debug
 ```

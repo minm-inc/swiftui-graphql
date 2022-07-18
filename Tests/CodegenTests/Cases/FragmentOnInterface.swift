@@ -49,7 +49,7 @@ protocol BazFragmentX2 {
     var a: Int? { get }
 }
 
-struct AnonymousQuery: Queryable, Codable {
+struct AnonymousQuery: QueryOperation, Codable {
     let iface: Iface?
     enum Iface: Codable, ContainsFooFragment {
         case x(X)

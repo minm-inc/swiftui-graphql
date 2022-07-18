@@ -9,10 +9,10 @@ import Combine
 import SwiftUI
 
 @propertyWrapper
-public struct Mutation<Response: Queryable>: DynamicProperty {
+public struct Mutation<Response: MutationOperation>: DynamicProperty {
     // Note: Need the DynamicProperty protocol to get access to `@Environment`
     @Environment(\.graphqlClient) public var client: GraphQLClient
-    @StateObject var operation = Operation<Response>()
+    @StateObject var operation = OperationWatcher<Response>()
     private let cacheUpdater: Cache.Updater?
     private let optimisticResponse: Response?
 
@@ -21,9 +21,10 @@ public struct Mutation<Response: Queryable>: DynamicProperty {
         self.optimisticResponse = optimisticResponse
     }
     
-    public var wrappedValue: Operation<Response> {
+    public var wrappedValue: OperationWatcher<Response> {
         get {
             operation.client = client
+            operation.cachePolicy = .networkOnly
             operation.cacheUpdater = cacheUpdater
             return operation
         }
