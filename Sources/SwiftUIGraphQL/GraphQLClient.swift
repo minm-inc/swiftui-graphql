@@ -37,7 +37,7 @@ public class GraphQLClient: ObservableObject {
 
     public struct QueryWatcher<Element>: AsyncSequence {
         typealias CacheListener = AsyncMapSequence<AsyncStream<[ObjectKey : Value]?>, Element?>
-        let cacheListener: CacheListener
+        let makeCacheListener: @Sendable () async -> CacheListener
         typealias Resolver = @Sendable () async throws -> Element?
         let cacheResolver: Resolver
         let networkResolver: Resolver
@@ -45,28 +45,29 @@ public class GraphQLClient: ObservableObject {
 
 
         public func makeAsyncIterator() -> AsyncIterator {
-            AsyncIterator(cacheIterator: cacheListener,
+            AsyncIterator(makeCacheListener: makeCacheListener,
                           cacheResolver: cacheResolver,
                           networkResolver: networkResolver,
                           cachePolicy: cachePolicy)
         }
 
         public struct AsyncIterator: AsyncIteratorProtocol {
-            internal init(cacheIterator: CacheListener,
+            internal init(makeCacheListener: @escaping @Sendable () async -> CacheListener,
                           cacheResolver: @escaping Resolver,
                           networkResolver: @escaping Resolver,
                           cachePolicy: GraphQLClient.CachePolicy) {
-                self.cacheIterator = cacheIterator.makeAsyncIterator()
+                self.makeCacheListener = makeCacheListener
                 self.cacheResolver = cacheResolver
                 self.networkResolver = networkResolver
                 self.cachePolicy = cachePolicy
             }
 
-            var cacheIterator: CacheListener.AsyncIterator
+            let makeCacheListener: @Sendable () async -> CacheListener
             let cacheResolver: Resolver
             let networkResolver: Resolver
             let cachePolicy: CachePolicy
 
+            private var cacheIterator: CacheListener.AsyncIterator?
             private var triedCache = false
             private var triedNetwork = false
 
@@ -106,7 +107,10 @@ public class GraphQLClient: ObservableObject {
             }
 
             private mutating func changesResolver() async throws -> Element? {
-                let next = await cacheIterator.next()
+                if cacheIterator == nil {
+                    cacheIterator = await makeCacheListener().makeAsyncIterator()
+                }
+                let next = await cacheIterator!.next()
                 switch next {
                 case .none:
                     // The listener finished
@@ -135,9 +139,11 @@ public class GraphQLClient: ObservableObject {
                                    isMutation: isMutation,
                                    cacheUpdater: cacheUpdater)
         }
-        let cacheListener = await cache.listenToChanges(selection: resolvedSelection, on: .queryRoot).map { $0.map { Value.object($0) } }
+        let makeCacheListener = { @Sendable in
+            await self.cache.listenToChanges(selection: resolvedSelection, on: .queryRoot).map { $0.map { Value.object($0) } }
+        }
 
-        return QueryWatcher<Value>(cacheListener: cacheListener,
+        return QueryWatcher<Value>(makeCacheListener: makeCacheListener,
                                    cacheResolver: cacheResolver,
                                    networkResolver: networkResolver,
                                    cachePolicy: cachePolicy)
