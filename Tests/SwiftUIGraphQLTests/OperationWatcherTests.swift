@@ -139,4 +139,55 @@ final class OperationWatcherTests: XCTestCase {
         XCTAssertEqual(queryRoot, [:])
         XCTAssertEqual(res, FooMutation(foo: 0))
     }
+
+    @MainActor
+    func testMergePolicyIsntAppliedOnCacheUpdates() async throws {
+        struct FooQuery: QueryOperation, Equatable {
+            static let schema = try! GraphQLSchema(query: GraphQLObjectType(name: "Query", fields: [
+                "foo": GraphQLField(type: GraphQLObjectType(name: "Foo", fields: [
+                    "id": GraphQLField(type: GraphQLString),
+                    "x": GraphQLField(type: GraphQLInt),
+                ]))
+            ]))
+            static let selection = selectionFromQuery(schema: schema, query)
+
+            static var query: String = "{ foo { __typename id x } }"
+            let foo: Foo
+
+            struct Foo: Cacheable {
+                var __typename: String = "Foo"
+                let id: ID
+                let x: Int
+                static let selection = FooQuery.selection.fields["x"]!.nested!
+            }
+        }
+        let client = MockGraphQLClient(response: .data(["foo": ["__typename": "Foo", "id": "0", "x": 0]]))
+        let operation = OperationWatcher<FooQuery>()
+        operation.client = client
+        try await operation.execute(variables: NoVariables())
+        XCTAssertEqual(operation.result.data!, FooQuery(foo: FooQuery.Foo(id: "0", x: 0)))
+        let mergePolicy: MergePolicy =  [
+            "foo": [
+                "x": .init { _, incoming in
+                    guard case .int(let x) = incoming else { fatalError() }
+                    return .int(x + 1)
+                }
+            ]
+        ]
+        try await operation.execute(variables: NoVariables(), mergePolicy: mergePolicy)
+        XCTAssertEqual(operation.result.data!, FooQuery(foo: FooQuery.Foo(id: "0", x: 1)))
+
+        var iterator = operation.$result.values.makeAsyncIterator()
+        let _ = await iterator.next()!
+
+        await client.cache.mergeQuery(["foo": [
+            "__typename": "Foo",
+            "id": "0",
+            "x": 100
+        ]], selection: FooQuery.selection.assumingNoVariables, updater: nil)
+
+        let x = await iterator.next()!
+
+        XCTAssertEqual(x.data, FooQuery(foo: FooQuery.Foo(id: "0", x: 100)))
+    }
 }

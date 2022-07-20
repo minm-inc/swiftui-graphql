@@ -33,37 +33,40 @@ public class OperationWatcher<Response: Operation>: ObservableObject {
 
         @discardableResult
         func receivedIncoming(_ value: Value) -> Response {
-            var value = value
-            if let mergePolicy {
-                value = mergePolicy.merge(existing: currentValue, incoming: value)
-            }
             let decodedResponse = try! ValueDecoder(scalarDecoder: client.scalarDecoder).decode(Response.self, from: value)
             result = GraphQLResult(data: decodedResponse, isFetching: false, error: nil)
-
             currentValue = value
-
             return decodedResponse
         }
 
-        do {
-            result.isFetching = true
-            let initialResponse = receivedIncoming(try await iterator.next()!)
+        result.isFetching = true
 
+        var initialResponse = try await AsyncThrowingStream(Value.self) { continuation in
             listenTask = Task {
+                var sentFirst = false
                 do {
                     while let incoming = try await iterator.next() {
-                        receivedIncoming(incoming)
+                        if !sentFirst {
+                            sentFirst = true
+                            continuation.yield(incoming)
+                        } else {
+                            receivedIncoming(incoming)
+                        }
                     }
                 } catch {
                     result = GraphQLResult(data: result.data, isFetching: false, error: error)
+                    if !sentFirst {
+                        continuation.finish(throwing: error)
+                    }
                 }
             }
+        }.prefix(1).reduce(into: []) { $0.append($1) }[0]
 
-            return initialResponse
-        } catch {
-            result = GraphQLResult(data: result.data, isFetching: false, error: error)
-            throw error
+        if let mergePolicy {
+            initialResponse = mergePolicy.merge(existing: currentValue, incoming: initialResponse)
         }
+
+        return receivedIncoming(initialResponse)
     }
     
     @discardableResult
@@ -140,3 +143,4 @@ public struct MergePolicy: ExpressibleByDictionaryLiteral {
         return res
     }
 }
+
