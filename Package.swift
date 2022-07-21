@@ -28,7 +28,7 @@ let package = Package(
     dependencies: [
         // Dependencies declare other packages that this package depends on.
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.1.1"),
-        .package(url: "https://github.com/minm-inc/GraphQL", revision: "fb0397c1fc03199a07910080b71f77a62b24ab0e"),
+        .package(url: "https://github.com/minm-inc/GraphQL", revision: "215d0fa659f51f721a78a8c5dede1b7c7909c971"),
 //        .package(path: "~/Source/graphql-swift"),
         .package(url: "https://github.com/apple/swift-syntax.git", from: "0.50500.0"),
         .package(
