@@ -1,6 +1,6 @@
 import XCTest
 import GraphQL
-import Codegen
+@testable import Codegen
 
 final class EnumCodegenTests: XCTestCase {
     func testEnumCodegen() throws {
@@ -8,15 +8,11 @@ final class EnumCodegenTests: XCTestCase {
             "CAT": GraphQLEnumValue(value: .string("CAT")),
             "DOG": GraphQLEnumValue(value: .string("DOG"))
         ])
-        let schema = try GraphQLSchema(query: GraphQLObjectType(name: "Query", fields: [
-            "animal": GraphQLField(type: enumType)
-        ]))
-        
-        let enumSyntax = genEnums(schema: schema).last!
+        let enumSyntax = genEnumType(enumType)
         var output = ""
-        enumSyntax.write(to: &output)
+        SwiftGen().gen(decl: enumSyntax).write(to: &output)
         XCTAssertEqual(output, """
-public enum Animal: String, Hashable, Codable, CaseIterable, Identifiable {
+public enum Animal: String, Hashable, Codable, CaseIterable, Identifiable, Sendable {
     case cat = "CAT"
     case dog = "DOG"
     public var id: Self {

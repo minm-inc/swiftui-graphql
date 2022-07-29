@@ -130,7 +130,7 @@ struct Codegen: AsyncParsableCommand {
                 .write(to: &output)
         } else {
             // Otherwise, we're generating the enum types/input object types for the schema
-            genSourceFileWithImports(imports: [], decls: genEnums(schema: schema))
+            genSourceFileWithImports(imports: [], decls: genSchemaTypes(schema: schema))
                 .write(to: &output)
         }
     }
