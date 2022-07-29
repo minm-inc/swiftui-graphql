@@ -33,3 +33,10 @@ public protocol Operation: Codable, Selectable {
 public protocol QueryOperation: Operation {}
 
 public protocol MutationOperation: Operation {}
+
+
+public extension Operation {
+    func toValue() -> Value {
+        try! ValueEncoder().encode(self)
+    }
+}

@@ -26,13 +26,15 @@ final class OperationWatcherTests: XCTestCase {
             }
         }
         let operation = OperationWatcher<FooQuery>()
-        let client = MockGraphQLClient(response: .data([
-            "foo": [
-                "__typename": "Foo",
-                "id": "1",
-                "bar": 42
-            ]
-        ]))
+        let client = MockGraphQLClient {
+            MockResponse(FooQuery.self, response: .data([
+                "foo": [
+                    "__typename": "Foo",
+                    "id": "1",
+                    "bar": 42
+                ]
+            ]))
+        }
         operation.client = client
         try await operation.execute(variables: NoVariables())
         await client.cache.update(.object(typename: "Foo", id: "1"), with: .update { old in
@@ -62,7 +64,9 @@ final class OperationWatcherTests: XCTestCase {
             }
         }
         let watcher = OperationWatcher<FooQuery>()
-        let client = MockGraphQLClient(response: .data(["foo": 1]))
+        let client = MockGraphQLClient {
+            MockResponse(FooQuery.self, response: .data(["foo": 1]))
+        }
         watcher.client = client
         let resultExpectation = expectation(description: "Receives two result changes")
         resultExpectation.expectedFulfillmentCount = 2
@@ -131,7 +135,9 @@ final class OperationWatcherTests: XCTestCase {
             static var query: String = "{ foo }"
             let foo: Int
         }
-        let client = MockGraphQLClient(response: .data(["foo": 0]))
+        let client = MockGraphQLClient {
+            MockResponse(FooMutation.self, response: .data(["foo": 0]))
+        }
         let operation = OperationWatcher<FooMutation>()
         operation.client = client
         let res = try await operation.execute(variables: NoVariables())
@@ -161,7 +167,9 @@ final class OperationWatcherTests: XCTestCase {
                 static let selection = FooQuery.selection.fields["x"]!.nested!
             }
         }
-        let client = MockGraphQLClient(response: .data(["foo": ["__typename": "Foo", "id": "0", "x": 0]]))
+        let client = MockGraphQLClient {
+            MockResponse(FooQuery.self, response: .data(["foo": ["__typename": "Foo", "id": "0", "x": 0]]))
+        }
         let operation = OperationWatcher<FooQuery>()
         operation.client = client
         try await operation.execute(variables: NoVariables())

@@ -28,7 +28,7 @@ let package = Package(
     dependencies: [
         // Dependencies declare other packages that this package depends on.
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.1.1"),
-        .package(url: "https://github.com/minm-inc/GraphQL", revision: "1e830cd961a2e3cda2a265ca37902d187b983d70"),
+        .package(url: "https://github.com/minm-inc/GraphQL", revision: "3a4e165f8254da856f0183d91961dae720ae2486"),
 //        .package(path: "~/Source/graphql-swift"),
         .package(url: "https://github.com/apple/swift-syntax.git", from: "0.50500.0"),
         .package(
@@ -48,7 +48,9 @@ let package = Package(
                 "SwiftUIGraphQL",
                 "Codegen",
                 .product(name: "GraphQL", package: "GraphQL"),
-            ]),
+            ],
+            resources: [.copy("fooResponse.json")]
+        ),
         .target(name: "Codegen", dependencies: [
             "SwiftUIGraphQL",
             .product(name: "SwiftSyntax", package: "swift-syntax"),

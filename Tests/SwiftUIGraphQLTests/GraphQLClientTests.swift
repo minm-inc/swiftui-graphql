@@ -14,7 +14,9 @@ final class GraphQLClientTests: XCTestCase {
 
     func testWatchCacheFirstElseNetworkPolicy() async throws {
         let networkObj: SwiftUIGraphQL.Value.Object = ["foo": 1]
-        let client = MockGraphQLClient(response: .data(.object(networkObj)))
+        let client = MockGraphQLClient {
+            MockResponse(MyQuery.self, response: .data(.object(networkObj)))
+        }
 
         let cachedObj: SwiftUIGraphQL.Value.Object = ["foo": 0]
         await client.cache.mergeQuery(cachedObj, selection: MyQuery.selection.assumingNoVariables, updater: nil)
@@ -32,7 +34,9 @@ final class GraphQLClientTests: XCTestCase {
 
     func testWatchCacheFirstThenNetworkPolicy() async throws {
         let networkObj: SwiftUIGraphQL.Value.Object = ["foo": 1]
-        let client = MockGraphQLClient(response: .data(.object(networkObj)))
+        let client = MockGraphQLClient {
+            MockResponse(MyQuery.self, response: .data(.object(networkObj)))
+        }
 
         let cachedObj: SwiftUIGraphQL.Value.Object = ["foo": 0]
         await client.cache.mergeQuery(cachedObj, selection: MyQuery.selection.assumingNoVariables, updater: nil)
@@ -48,7 +52,9 @@ final class GraphQLClientTests: XCTestCase {
 
     func testWatchCacheNetworkOnlyPolicy() async throws {
         let networkObj: SwiftUIGraphQL.Value.Object = ["foo": 1]
-        let client = MockGraphQLClient(response: .data(.object(networkObj)))
+        let client = MockGraphQLClient {
+            MockResponse(MyQuery.self, response: .data(.object(networkObj)))
+        }
 
         let cachedObj: SwiftUIGraphQL.Value.Object = ["foo": 0]
         await client.cache.mergeQuery(cachedObj, selection: MyQuery.selection.assumingNoVariables, updater: nil)
@@ -59,7 +65,9 @@ final class GraphQLClientTests: XCTestCase {
     }
 
     func testWatchOnlyReturnsOnceInitially() async throws {
-        let client = MockGraphQLClient(response: .data(["foo": 0]))
+        let client = MockGraphQLClient {
+            MockResponse(MyQuery.self, response: .data(["foo": 0]))
+        }
 
         var iterator = await client.watch(MyQuery.self, cachePolicy: .cacheFirstElseNetwork).makeAsyncIterator()
         let _ = try! await iterator.next()!

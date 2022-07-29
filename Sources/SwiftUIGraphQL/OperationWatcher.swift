@@ -24,12 +24,10 @@ public class OperationWatcher<Response: Operation>: ObservableObject {
     func execute(variables: Response.Variables, mergePolicy: MergePolicy? = nil) async throws -> Response {
         listenTask?.cancel()
 
-        var iterator = await client.watch(query: Response.query,
-                                          selection: Response.selection,
-                                          variables: variablesToObject(variables),
-                                          isMutation: isMutationOperationType(Response.self),
-                                          cachePolicy: cachePolicy ?? .cacheFirstElseNetwork,
-                                          cacheUpdater: cacheUpdater).makeAsyncIterator()
+        var iterator = await client.watchValue(Response.self,
+                                               variables: variables,
+                                               cachePolicy: cachePolicy ?? .cacheFirstElseNetwork,
+                                               cacheUpdater: cacheUpdater).makeAsyncIterator()
 
         @discardableResult
         func receivedIncoming(_ value: Value) -> Response {

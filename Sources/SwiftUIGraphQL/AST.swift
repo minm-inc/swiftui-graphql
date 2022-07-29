@@ -385,9 +385,3 @@ extension Value1: ExpressibleByNilLiteral {
 
 public typealias Value = Value1<Never>
 public typealias NonConstValue = Value1<String>
-
-public extension Encodable {
-    func toValue() -> Value {
-        try! ValueEncoder().encode(self)
-    }
-}

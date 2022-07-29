@@ -19,20 +19,47 @@ import Foundation
 /// ```
 public class MockGraphQLClient: GraphQLClient {
     private struct MockTransport: Transport {
-        let response: GraphQLResponse<Value>
         func makeRequest<T: Decodable>(query: String, variables: [String : Value]?, response: T.Type) async throws -> GraphQLResponse<T> {
-            self.response as! GraphQLResponse<T>
+            fatalError()
         }
     }
-    /// Create a mock GraphQL client that returns the response from a JSON file specified at the URL.
-    public init(from url: URL) {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let response = try! decoder.decode(GraphQLResponse<Value>.self, from: Data(contentsOf: url))
-        super.init(transport: MockTransport(response: response))
+
+    @resultBuilder
+    public struct MockBuilder {
+        public static func buildBlock(_ parts: MockResponse...) -> [ObjectIdentifier: GraphQLResponse<Value>] {
+            return parts.reduce(into: [:]) { $0[$1.operation] = $1.response }
+        }
     }
 
-    public init(response: GraphQLResponse<Value>) {
-        super.init(transport: MockTransport(response: response))
+    public init(@MockBuilder _ mockResponses: () -> [ObjectIdentifier: GraphQLResponse<Value>]) {
+        self.responseMap = mockResponses()
+        super.init(transport: MockTransport())
+    }
+
+    let responseMap: [ObjectIdentifier: GraphQLResponse<Value>]
+
+    override func makeTransportRequest<T>(_ operation: T.Type, variables: [String : Value]?) async throws -> GraphQLResponse<Value> where T : Operation {
+        guard let res = responseMap[ObjectIdentifier(operation)] else {
+            fatalError("Missing a mock response for \(operation)")
+        }
+        return res
+    }
+}
+
+public struct MockResponse {
+    let operation: ObjectIdentifier
+    let response: GraphQLResponse<Value>
+
+    /// Create a mock response for the operation type from a JSON file specified at the URL.
+    public init<T: Operation>(_ type: T.Type, responseURL: URL) {
+        self.operation = ObjectIdentifier(type)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        self.response = try! decoder.decode(GraphQLResponse<Value>.self, from: Data(contentsOf: responseURL))
+    }
+
+    public init<T: Operation>(_ type: T.Type, response: GraphQLResponse<Value>) {
+        self.operation = ObjectIdentifier(type)
+        self.response = response
     }
 }
