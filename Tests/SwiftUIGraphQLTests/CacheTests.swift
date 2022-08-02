@@ -499,6 +499,29 @@ final class CacheTests: XCTestCase {
         XCTAssertTrue(store.selectionChanged(selection, on: .queryRoot))
     }
 
+    func testClearingCacheWithListenerSendsNil() async {
+        let key = CacheKey.object(typename: "Foo", id: "1")
+        let cache = Cache(store: [
+            key: [
+                "x": .int(42)
+            ]
+        ])
+
+        let fooType = try! GraphQLObjectType(name: "Foo", fields: [
+            "x": GraphQLField(type: GraphQLInt)
+        ])
+
+        let schema = try! GraphQLSchema(query: GraphQLObjectType(name: "Query", fields: [
+            "foo": GraphQLField(type: fooType)
+        ]))
+        let selection = selection("{x}", on: fooType, schema: schema).assumingNoVariables
+
+        var iterator = await cache.listenToChanges(selection: selection, on: key).makeAsyncIterator()
+        await cache.clear()
+        let next = await iterator.next()!
+        XCTAssertNil(next)
+    }
+
 //
 //    func testUpdateQueryWithNewResponse() {
 //        /**

@@ -3,15 +3,19 @@
 import GraphQL
 
 func selectionFromQuery(schema: GraphQLSchema, _ queryString: String) -> ResolvedSelection<String> {
+    selection(queryString, on: schema.queryType, schema: schema)
+}
+
+func selection(_ queryString: String, on type: any GraphQLCompositeType, schema: GraphQLSchema) -> ResolvedSelection<String> {
     let document = try! GraphQL.parse(source: Source(body: queryString))
     guard case .executableDefinition(.operation(let operation)) = document.definitions[0] else {
         fatalError()
     }
     let unmergedSelections = makeUnmergedSelections(selectionSet: operation.selectionSet,
-                                                    parentType: schema.queryType,
+                                                    parentType: type,
                                                     schema: schema,
                                                     fragments: [])
-    let mergedObject = merge(unmergedSelections: unmergedSelections, type: schema.queryType, schema: schema)
+    let mergedObject = merge(unmergedSelections: unmergedSelections, type: type, schema: schema)
     return selectionFromMergedObject(mergedObject)
 }
 

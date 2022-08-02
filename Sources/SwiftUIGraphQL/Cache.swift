@@ -316,7 +316,8 @@ public actor Cache {
 
     func flushChanges() {
         for (selection, cacheKey, continuation) in continuations.values where store.selectionChanged(selection, on: cacheKey) {
-            if let object = value(from: store[cacheKey]!, selection: selection) {
+            if let cacheObj = store[cacheKey],
+               let object = value(from: cacheObj, selection: selection) {
                 continuation.yield(object)
             } else {
                 continuation.yield(nil)
