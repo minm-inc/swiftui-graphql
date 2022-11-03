@@ -132,9 +132,19 @@ class ProtocolConformance: Equatable {
                                           inheritObject: fragmentObjects[fragmentName]!,
                                           schema: schema)
                         .forEach(insertInheritance(path:inherits:))
-                case .conditional(_):
-                    // TODO: Handle this?
-                    break
+                case .conditional(let fragType):
+                    // The path that we're working on should be a container (ContainsFooFragment) protocol,
+                    // since we're adding inheritances for its type discriminated sub-protocols e.g. ContainsFooTypeFragment
+                    if !path.isContainer { break }
+                    // Don't want to add any conformances to any other container protocols
+                    if !fragmentObjects[fragmentName]!.isMonomorphic { break }
+                    for type in object.conditional.keys where schema.isSubType(abstractType: fragType, maybeSubType: type.type) {
+                        let typeDiscrimPath = path.appendingTypeDiscrimination(type: type.type)
+                        // TODO: Do we need to insert the nested inheritences too? i.e. more than just the top level fragment protocol
+                        insertInheritance(path: typeDiscrimPath,
+                                          inherits: FragmentProtocolPath(fragmentName: fragmentName,
+                                                                         fragmentObject: fragmentObjects[fragmentName]!))
+                    }
                 }
             }
         }
