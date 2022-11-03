@@ -56,7 +56,7 @@
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
       launchStyle = "0"
       useCustomWorkingDirectory = "YES"
-      customWorkingDirectory = "/Users/luke/Source/minm-ios/MinmGraphQL"
+      customWorkingDirectory = "/Users/luke/Source/minm-ios/Shared/"
       ignoresPersistentStateOnLaunch = "NO"
       debugDocumentVersioning = "YES"
       debugServiceExtension = "internal"
@@ -73,11 +73,11 @@
       </BuildableProductRunnable>
       <CommandLineArguments>
          <CommandLineArgument
-            argument = "--schema /Users/luke/Source/minm-ios/MinmGraphQL/schema.json"
+            argument = "--schema /Users/luke/Source/minm-ios/schema.json"
             isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
-            argument = "/Users/luke/Source/minm-ios/MinmGraphQL/Sources/MinmGraphQL/Queries/library.graphql"
+            argument = "/Users/luke/Source/minm-ios/Shared/Queries/notifications.graphql"
             isEnabled = "YES">
          </CommandLineArgument>
       </CommandLineArguments>

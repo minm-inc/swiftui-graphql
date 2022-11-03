@@ -23,7 +23,7 @@ import OrderedCollections
 ///                   ▼
 ///          ┌─────────────────┐
 ///          │                 │           Where most of the magic happens:
-///      ┌───┤ MergedSelection ├───┐       1) Merges overlapping nested objects
+///      ┌───┤   MergedObject  ├───┐       1) Merges overlapping nested objects
 ///      │   │                 │   │       2) Flattens unconditional fragments so they're just
 ///      │   └─────────────────┘   │          normal fields
 ///      │                         │       After this point the GraphQL library and types are
@@ -89,8 +89,8 @@ public func generateDocument(_ rawDocument: Document, schema: GraphQLSchema, glo
 
 private func gen(operation def: OperationDefinition, schema: GraphQLSchema, fragmentInfo: FragmentInfo) -> Decl {
     let parentType = operationRootType(for: def.operation, schema: schema)
-    let unresolvedSelections = makeUnmergedSelections(selectionSet: def.selectionSet, parentType: parentType, schema: schema, fragments: fragmentInfo.definitions)
-    let object = merge(unmergedSelections: unresolvedSelections, type: parentType, schema: schema)
+    let unmergedSelections = makeUnmergedSelections(selectionSet: def.selectionSet, parentType: parentType, schema: schema, fragments: fragmentInfo.definitions)
+    let object = merge(unmergedSelections: unmergedSelections, type: parentType, schema: schema)
     
     let name = (def.name?.value.firstUppercased ?? "Anonymous") + operationSuffix(for: def.operation)
     

@@ -35,13 +35,21 @@ struct MergedObject: CustomDebugStringConvertible {
     }
     
     var debugDescription: String {
-        [
-            "\(type.name)@ {",
+        let fragmentDebugInfo = fragmentConformances.map { name, conformance in
+            switch conformance {
+            case .unconditional:
+                return name
+            case .conditional(let type):
+                return "\(name)@\(type.debugDescription)"
+            }
+        }.joined(separator: ", ")
+        return [
+            "\(type.name)<\(fragmentDebugInfo)> {",
             unconditional.debugDescription.indented(),
             conditional.map { type, selection in
                 "... on \(type.type.name) {\n" + selection.debugDescription.indented() + "\n}"
             }.joined(separator: "\n").indented(),
-            "\n} conforms to \(fragmentConformances.keys.joined(separator: ", "))"
+            "\n}"
         ].joined(separator: "\n")
     }
     
@@ -143,6 +151,15 @@ struct MergedObject: CustomDebugStringConvertible {
         // TODO: Set this up so that eventually we generate discriminated types that do conform to all the fragments that their container type conforms to
         for k in conditional.keys {
             conditional[k]!.merge(incoming.unconditional, ignoringFragments: true)
+        }
+
+        for (fragmentName, conformance) in incoming.fragmentConformances where conformance == .unconditional {
+            switch fragmentConformances[fragmentName] {
+            case .conditional:
+                fatalError("TODO: Handle merging two conditional fragment conformances")
+            case .unconditional, nil:
+                fragmentConformances[fragmentName] = .conditional(incoming.type)
+            }
         }
     }
     
