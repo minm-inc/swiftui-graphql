@@ -64,8 +64,11 @@ class FragProtoTests: XCTestCase {
             fragmentConformances: [:]
         )
         let fragmentObjMap = ["StuffOnFoo": stuffOnFooObj]
+        let conformanceGraph = ProtocolConformance.buildConformanceGraph(fragmentObjects: fragmentObjMap,
+                                                                         schema: schema)
         let fragProtoGenerator = FragProtoGenerator(fragmentObjectMap: fragmentObjMap,
-                                                    fragmentConformanceGraph: ProtocolConformance.buildConformanceGraph(fragmentObjects: fragmentObjMap, schema: schema))
+                                                    fragmentConformanceGraph: conformanceGraph,
+                                                    schema: schema)
         let fragProto = fragProtoGenerator.gen(fragProtoFor: mergedSelection,
                                                following: [],
                                                currentPath: FragmentProtocolPath(fragmentName: "StuffOnFoo",

@@ -67,7 +67,7 @@ public func generateDocument(_ rawDocument: Document, schema: GraphQLSchema, glo
         case let .executableDefinition(.fragment(def)):
             let fragmentName = def.name.value
             var object = fragmentInfo.objects[fragmentName]!
-            decls += gen(fragment: object, named: fragmentName, fragmentInfo: fragmentInfo)
+            decls += gen(fragment: object, named: fragmentName, fragmentInfo: fragmentInfo, schema: schema)
             
             // Generate a concrete object definition for the fragment, useful for constructing dummy values of the fragment for testing and design time
             object.fragmentConformances[fragmentName] = .unconditional

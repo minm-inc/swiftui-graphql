@@ -3,13 +3,14 @@ import GraphQL
 import OrderedCollections
 import SwiftUIGraphQL
 
-func gen(fragment: MergedObject, named name: String, fragmentInfo: FragmentInfo) -> [Decl] {
+func gen(fragment: MergedObject, named name: String, fragmentInfo: FragmentInfo, schema: GraphQLSchema) -> [Decl] {
     let following = fragment.fragmentConformances.keys.map { name in
         let obj = fragmentInfo.objects[name]!
         return (FragmentProtocolPath(fragmentName: name, fragmentObject: obj), obj)
     }
     let fragProto = FragProtoGenerator(fragmentObjectMap: fragmentInfo.objects,
-                                       fragmentConformanceGraph: fragmentInfo.conformanceGraph)
+                                       fragmentConformanceGraph: fragmentInfo.conformanceGraph,
+                                       schema: schema)
         .gen(fragProtoFor: fragment, following: following, currentPath: FragmentProtocolPath(fragmentName: name, fragmentObject: fragment))
     return gen(fragProto: fragProto, named: name, fragmentInfo: fragmentInfo)
 }
@@ -51,10 +52,14 @@ enum FragProto {
 class FragProtoGenerator {
     let fragmentObjectMap: [String: MergedObject]
     let fragmentConformanceGraph: [FragmentProtocolPath: ProtocolConformance]
+    let schema: GraphQLSchema
     
-    init(fragmentObjectMap: [String: MergedObject], fragmentConformanceGraph: [FragmentProtocolPath: ProtocolConformance]) {
+    init(fragmentObjectMap: [String: MergedObject],
+         fragmentConformanceGraph: [FragmentProtocolPath: ProtocolConformance],
+         schema: GraphQLSchema) {
         self.fragmentObjectMap = fragmentObjectMap
         self.fragmentConformanceGraph = fragmentConformanceGraph
+        self.schema = schema
     }
     
     func gen(fragProtoFor object: MergedObject, following fragmentObjects: [(FragmentProtocolPath, MergedObject)], currentPath: FragmentProtocolPath) -> FragProto {
@@ -75,8 +80,11 @@ class FragProtoGenerator {
             // If the fragment is polymorphic, then the protocol becomes a container `ContainsFooFragment`
             let cases: OrderedDictionary<AnyGraphQLCompositeType, FragProto.Case> = object.conditional.reduce(into: [:]) { acc, x in
                 let (typeCondition, selection) = x
+                let applicableFragmentObjects = fragmentObjects.filter {
+                    schema.isSubType(abstractType: $0.1.type, maybeSubType: typeCondition.type)
+                }
                 let proto = gen(protoFor: selection,
-                                following: fragmentObjects,
+                                following: applicableFragmentObjects,
                                 currentPath:  currentPath.appendingTypeDiscrimination(type: typeCondition.type))
                 acc[typeCondition] = FragProto.Case(
                     proto: proto,
