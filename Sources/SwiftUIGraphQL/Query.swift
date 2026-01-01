@@ -50,6 +50,10 @@ public struct Query<Response: QueryOperation>: DynamicProperty {
             do { try await operation.execute(variables: variables, mergePolicy: mergePolicy) }
             catch {}
         }
+        
+        public func execute(variables: Response.Variables) async throws {
+            try await operation.execute(variables: variables, mergePolicy: self.mergePolicy)
+        }
 
         public func execute() async {
             await execute(variables: self.variables, mergePolicy: self.mergePolicy)

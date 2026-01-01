@@ -1,5 +1,6 @@
-public actor Cache {
-    public typealias Updater = (@Sendable (CacheObject, Cache) async -> Void)
+@MainActor
+public class Cache {
+    public typealias Updater = (@MainActor (CacheObject, Cache) async -> Void)
 
     init(store: [CacheKey: CacheObject] = [:]) {
         self.store = Store(initialStore: store)

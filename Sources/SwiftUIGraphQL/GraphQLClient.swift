@@ -9,6 +9,7 @@ import Foundation
 import Combine
 import SwiftUI
 
+@MainActor
 public class GraphQLClient: ObservableObject {
     public let cache = Cache()
 
@@ -137,7 +138,7 @@ public class GraphQLClient: ObservableObject {
             await self.cache.value(from: self.cache.store[.queryRoot]!, selection: resolvedSelection).map { Value.object($0) }
         }
         let networkResolver = { @Sendable () -> Value in
-            try await self.execute(operation, variables: variables, cacheUpdater: cacheUpdater)
+            try await self.execute(operation, variables: variables, cachePolicy: .networkOnly, cacheUpdater: cacheUpdater)
         }
         let makeCacheListener = { @Sendable in
             await self.cache.listenToChanges(selection: resolvedSelection, on: .queryRoot).map { $0.map { Value.object($0) } }
@@ -166,8 +167,19 @@ public class GraphQLClient: ObservableObject {
     
     // TODO: Make the API surface nicer: potentially generate the selection from just the query string, or only take in selection + variables
     /// All requests to the server within a ``GraphQLClient`` should go through here, where it takes care of updating the cache and stuff.
-    private func execute<T: Operation>(_ operation: T.Type, variables: T.Variables, cacheUpdater: Cache.Updater?) async throws -> Value {
+    private func execute<T: Operation>(_ operation: T.Type, variables: T.Variables, cachePolicy: CachePolicy, cacheUpdater: Cache.Updater?) async throws -> Value {
         let variablesDict = variablesToObject(variables)
+        let selection = substituteVariables(in: T.selection, variableDefs: variablesDict)
+        switch cachePolicy {
+        case .cacheFirstElseNetwork, .cacheFirstThenNetwork:
+            if !isMutationOperationType(T.self),
+               let cached = cache.value(from: cache.store[.queryRoot]!, selection: selection) {
+                return .object(cached)
+            }
+        case .networkOnly:
+            break
+        }
+        
         do {
             let response = try await makeTransportRequest(operation, variables: variablesDict)
             guard case .data(.object(let incoming)) = response else {
@@ -187,7 +199,7 @@ public class GraphQLClient: ObservableObject {
                 errorCallback?(error) ?? false
             }
             if shouldRetry {
-                return try await self.execute(operation, variables: variables, cacheUpdater: cacheUpdater)
+                return try await self.execute(operation, variables: variables, cachePolicy: cachePolicy, cacheUpdater: cacheUpdater)
             } else {
                 throw error
             }
@@ -201,14 +213,14 @@ public class GraphQLClient: ObservableObject {
                                         response: Value.self)
     }
 
-    public func execute<T: Operation>(_ operation: T.Type, variables: T.Variables, cacheUpdater: Cache.Updater? = nil) async throws -> T {
-        let decodedData: Value = try await execute(operation, variables: variables, cacheUpdater: cacheUpdater)
+    public func execute<T: Operation>(_ operation: T.Type, variables: T.Variables, cachePolicy: CachePolicy = .cacheFirstElseNetwork, cacheUpdater: Cache.Updater? = nil) async throws -> T {
+        let decodedData: Value = try await execute(operation, variables: variables, cachePolicy: cachePolicy, cacheUpdater: cacheUpdater)
         // Use a try! here because failing to decode an Operation from a Value is a programming error
         return try! ValueDecoder(scalarDecoder: scalarDecoder).decode(T.self, from: decodedData)
     }
 
-    public func execute<T: Operation>(_ operation: T.Type, cacheUpdater: Cache.Updater? = nil) async throws -> T where T.Variables == NoVariables {
-        return try await execute(operation, variables: NoVariables(), cacheUpdater: cacheUpdater)
+    public func execute<T: Operation>(_ operation: T.Type, cachePolicy: CachePolicy = .cacheFirstElseNetwork, cacheUpdater: Cache.Updater? = nil) async throws -> T where T.Variables == NoVariables {
+        return try await execute(operation, variables: NoVariables(), cachePolicy: cachePolicy, cacheUpdater: cacheUpdater)
     }
 }
 
@@ -236,6 +248,7 @@ private class PlaceholderGraphQLClient: GraphQLClient {
     init() { super.init(transport: PlaceholderTransport()) }
 }
 
+@MainActor
 struct GraphQLClientKey: EnvironmentKey {
     static var defaultValue: GraphQLClient = PlaceholderGraphQLClient()
 }
